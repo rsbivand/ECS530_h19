@@ -7,6 +7,10 @@ output:
 theme: united
 ---
 
+### [Preliminary schedule](https://rsbivand.github.io/ECS530_h19/plan_ecs530_h19.html)
+
+### [Streaming details](https://rsbivand.github.io/ECS530_h19/streaming_ecs530_h19.html)
+
 ### Monday AM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_I.html)
 
 ### Monday PM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_II.html)
