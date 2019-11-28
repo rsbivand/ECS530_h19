@@ -1,0 +1,526 @@
+---
+title: "ECS530: (II) Import/export of spatial data"
+author: "Roger Bivand"
+date: "Monday 2 December 2019, 13:15-15.00, aud. C"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+theme: united
+bibliography: ecs530.bib
+link-citations: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Copyright
+
+All the material presented here, to the extent it is original, is available under [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/). Parts build on joint tutorials with Edzer Pebesma.
+
+### Required current contributed CRAN packages:
+
+I am running R 3.6.1, with recent `update.packages()`.
+
+```{r}
+needed <- c("rgdal", "RSQLite", "units", "gdistance", "Matrix", "igraph", "raster", "sp", "spData", "mapview", "sf")
+```
+
+### Script
+
+Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_II.zip. Download to suitable location, unzip and use as basis.
+
+## Schedule
+
+- 2/12 (I) Spatial data representation, **(II) Support+topology, input/output**
+
+- 3/12 (III) Coordinate reference systems, (IV) visualization
+
+- 4/12 (V) R/GIS interfaces, *project surgery*
+
+- 5/12 (VI) Spatial autocorrelation, (VII) regression
+
+- 6/12 (VIII) Interpolation, point processes, *project surgery*
+
+- 7/12 *Presentations*
+
+
+## Session II
+
+- 13:15-13:45 Support
+
+- 13:45-14:15 Topology operations
+
+- 14:15-15:00 Input/output
+
+
+# Support
+
+*Support* expressses the relationship between the spatial and temporal entities of observation used for capturing underlying data generation processes, and those processes themselves. 
+
+The processes and their associated spatial and temporal scales ("footprints") and strides may not be well-understood, so the ways that we conduct observations may or may not give use good "handles" on the underlying realities. 
+
+Since we are most often interested in drawing conclusions about the underlying realities, we should try to be aware of issues raised when we mix things up, the ecological fallacy being a typical example [@wakefield+lyons10], involving the drawing of conclusions about individuals from aggregates.
+
+Change of support occurs when the observational entities we are using differ in their spatial and/or temporal footprint, and we need to impute or interpolate from one support to another [@gotway+young:02]. Areal interpolation is one of the pathways  [@thomas15]. 
+
+Often we are not clear about the aggregation status of variables that we observe by entity either. In many entities, we are dealing with count aggregates. Say we have an accident count on a road segment, it is clear that if we subset the segment, we would need to impute the count to the subsegments that we have chosen. The variable is an aggregate, and subsetting should preserve the sum over all subsets rule.
+
+```{r}
+byb <- readRDS("byb.rds")
+names(attributes(byb))
+```
+
+```{r}
+library(sf)
+st_agr(byb)
+```
+  
+Work by [@stasch2014; @scheider2016] has shown that misunderstandings about whether variable values are constant over a segment (we really want the `gauge` to be constant), whether they are identities (`osm_id`), or whether they are measured over the whole observed time period at the point, line segment, polygon, or raster cell by counting or other aggregation, are quite prevalent. 
+
+All `"sf"` objects have an `"agr"` attribute, set by default to unknown (`NA`) for each non-geometry column in the data frame. In this case the information is of very poor quality (many missing values, others guessed), but use can be made of the facility in other datasets.
+
+```{r}
+byb$length <- st_length(byb)
+summary(byb$length)
+```
+
+```{r}
+str(byb$length)
+```
+
+Unfortunately, the simple examples given in SDSR do not work. The introduction of units, shown here and in [@RJ-2016-061] also do not (yet) provide the background for issuing warnings with regard to support that were anticipated when the ideas were first considered. The idea underlying `st_agr()` has been to warn when an aggregate variable is copied across to a part of an entity as though it was a constant.
+
+## Boston housing data set example
+
+The results I presented at useR! 2016 on this data set aggregated the data to air pollution model output zones \citep[see also][]{bivand17}
+
+Here, based on \citet{bivandetal17a}, spatially structured random effects are added by air pollution model output zones instead
+
+\citet{HarrisonRubinfeld:1978} used a hedonic model to find out how house values were affected by air pollution in Boston, when other variables were taken into consideration
+
+They chose to use 506 census tracts as units of observation, but air pollution values were available from model output for 122 zones, of which less than 100 fell within the study area
+
+By taking the 96 air pollution model output zones as the upper level in a hierarchical spatial model, we explore the consequences for the results
+
+
+The [@HarrisonRubinfeld:1978] Boston housing data set has been widely used because of its availability from [@belsleyetal:80], [@PaceGilley:1997] and [@RePEc:eee:jeeman:v:31:y:1996:i:3:p:403-405]
+
+The underlying research question in the original article was the estimation of willingness to pay for clean air, using air pollution levels and house values in a hedonic regression
+
+[@PaceGilley:1997] showed clearly, the air pollution coefficient estimate in the model changed when residual spatial autocorrelation was taken into account (from -0.0060 to -0.0037), as did its standard error (from 0.0012 to 0.0016)
+
+Is the strength of spatial autocorrelation observed in this data set a feature of the census tract observations themselves, or has it been introduced or strengthened by changes in the observational units used for the different variables?
+
+Our focus will be on the choices of observational units made in assembling the original data set, and on another relevant alternative 
+
+Using an approximation to the model output zones from which the air pollution variable levels were taken, it will be shown that much of the puzzling spatial autocorrelation is removed
+
+
+### House value data
+
+![scan from census form](h11.png)
+
+[@HarrisonRubinfeld:1978] used median house values in 1970 USD for 506 census tracts in the Boston SMSA for owner-occupied one-family houses; census tracts with no reported owner-occupied one-family housing units were excluded from the data set. The relevant question is H11, which was answered by crossing off one grouped value alternative, ranging from under USD 5,000 to over USD 50,000
+
+The house value data have census tract support, and are median values calculated from group counts from the alternatives offered in H11; tracts with weighted median values in these upper and lower alternative value classes are censored
+
+The published census tract tabulations show the link between question H11 and the Statlib-based data (after correction)
+
+The median values tabulated in the census report can be reconstructed from the tallies shown in the same Census tables fairly accurately using the `weightedMedian` function in the **matrixStats** package in R, using linear interpolation
+
+The effectiveness of the study was prejudiced by the fact that areas of central Boston with the highest levels of air pollution also lose house value data, either because of tract exclusion (no one-family housing units reported) or right or left censored tracts
+
+### Air pollution data
+
+The data on air pollution concentrations were obtained from the Transportation and Air Shed SIMulation model (TASSIM) applied to the Boston air shed [@ingram+fauth:74]
+
+The calibrated model results were obtained for 122 zones, and assigned proportionally to the 506 census tracts
+
+The NOX values in the published data sets are in units of 10 ppm (10 parts per million), and were then multiplied by 10 again in the regression models to yield parts per 100 million (pphm)
+
+Many of the smaller tracts belong to the same TASSIM zones; this is a clear case of change of support, with very different spatial statistical properties under the two different entitation schemes [@gotway+young02]
+
+
+```{r, echo = TRUE}
+TASSIM <- st_read("TASSIM.gpkg")
+library(mapview)
+mapview(TASSIM)
+```
+
+A two-part report details the use of the TASSIM simulation model \citep{ingram+fauth:74, ingramatal:74}. Both of these volumes include line-printer maps of the TASSIM zones, and the Fortran code in volume 2 [@ingramatal:74] shows the links between the 122 TASSIM zones and the line printer output. Western TASSIM zones appear to lie outside the Boston SMSA tracts included in the 506 census tract data set.
+
+The Boston data set has 2D polygon and multipolygon geometries stored in a shapefile; shapefiles are pre-SF
+
+```{r, echo = TRUE}
+library(sf)
+library(spData)
+b506 <- st_read(system.file("shapes/boston_tracts.shp", package="spData")[1])
+```
+```{r}
+mapview(b506, zcol="censored")
+```
+
+### Aggregating geometries to model output zones
+
+After dropping the censored census tracts, we need to derive the model output zones. The aggregate method calls `sf::st_union` on each unique grouping value, but the function called internally is a trick, putting only the first value of each variable in the output; for this reason we only retain the ids:
+
+```{r, echo = TRUE}
+b489 <- b506[b506$censored == "no",]
+t0 <- aggregate(b489, list(ids = b489$NOX_ID), head, n = 1)
+b94 <- t0[, c("ids", attr(t0, "sf_column"))]
+```
+
+
+### Air pollution data
+
+The figure shows clearly that the study of the relationship between NOX and house value will be impacted by ``copying out'' NOX values to census tracts, as noted by [@HarrisonRubinfeld:1978]
+
+
+```{r}
+mapview(b489, zcol="NOX")
+```
+
+
+
+
+Even if we were to use more class intervals in these choropleth maps, the visual impression would be the same, because the underlying data have support approximated by the TASSIM zones, not by the census tracts
+
+
+### Other independent variables
+
+Besides NOX, the other census covariates included in the hedonic regression to account for median house values are the average number of rooms per house, the proportion of houses older than 1940, the proportion low-status inhabitants in each tract, and the Black proportion of population in the tract - originally expressed as a broken-stick relationship, but here taken as a percentage
+
+The crime rate is said to be taken from FBI data by town, but which is found on inspection to vary by tract
+
+The distance from tract to employment centres is derived from other sources, as is the dummy variable for tracts bordering Charles River
+
+Other covariates are defined by town, with some also being fixed for all towns in Boston
+
+The town aggregates of census tracts are used in many of the census report tabulations, and of the 92 towns, 17 only contain one census tract, while one town contains thirty census tracts
+
+The variables are the proportion of residential lots zoned over 25000 sq. ft, the proportion of non-retail business acres, accessibility to radial highways, full-value property-tax rate per USD 10,000, and pupil-teacher ratio by town school district
+
+
+### Towns and TASSIM zones
+
+In the case of 80 approximate TASSIM zones aggregated from census tracts, the boundaries do coincide exactly with town boundaries
+
+For the remaining 12 towns and 16 TASSIM zones, there are overlaps between more than one town and TASSIM zone, mostly in Boston itself
+
+Using TASSIM zones for analysis should therefore also reduce the levels of autocorrelation induced by ``copying out'' town values to tracts within towns
+
+The exact match between town boundaries defined using census tracts, and approximated TASSIM zones also constructed using census tracts is not necessarily an indication that towns were used as TASSIM zones
+
+
+
+# GEOS, topology operations
+
+(precision in **sf**, scale in **rgeos**)
+
+
+### Broad Street Cholera Data
+
+```{r echo=FALSE}
+knitr::include_graphics('snowmap.png')
+```
+
+Even though we know that John Snow already had a working
+hypothesis about cholera epidemics, his data remain interesting,
+especially if we use a GIS to find the street distances from
+mortality dwellings to the Broad Street pump in Soho in central
+London. Brody et al. [-@brodyetal:00] point out that John Snow did not use
+maps to *find* the Broad Street pump, the polluted water source
+behind the 1854 cholera epidemic, because he associated cholera
+with water contaminated with sewage, based on earlier experience.
+
+The basic data to be used here were made available by Jim Detwiler, who had collated them for David O'Sullivan for use on the cover of O'Sullivan and Unwin [-@osullivan+unwin:03], based on earlier work by Waldo Tobler and others. The files were a shapefile of counts of deaths at front doors of houses, two shapefiles of pump locations and a georeferenced copy of the Snow map as an image; the files were registered in the British National Grid CRS. These have been converted to GPKG format. In GRASS, a suitable location was set up in this CRS and the image file was imported; the building contours were then digitised as a vector layer and cleaned.
+
+
+```{r echo=FALSE}
+knitr::include_graphics('brodyetal00_fig1.png')
+```
+
+We would like to find the line of equal distances shown on the extract from John Snow's map shown in Brody et al. [-@brodyetal:00] shown here, or equivalently find the distances from the pumps to the front doors of houses with mortalities following the roads, not the straight line distance. We should recall that we only have the locations of counts of mortalities, not of people at risk or of survivors.
+
+
+```{r, echo=TRUE}
+library(sf)
+bbo <- st_read("snow/bbo.gpkg")
+```
+
+```{r, echo=TRUE, warning=FALSE}
+buildings <- st_read("snow/buildings.gpkg", quiet=TRUE)
+deaths <- st_read("snow/deaths.gpkg", quiet=TRUE)
+sum(deaths$Num_Css)
+b_pump <- st_read("snow/b_pump.gpkg", quiet=TRUE)
+nb_pump <- st_read("snow/nb_pump.gpkg", quiet=TRUE)
+```
+
+
+As there is a small difference between the CRS values, we copy across before conducting an intersection operation to clip the buildings to the boundary, then we buffer in the buildings object (to make the roads broader).
+
+```{r, echo=TRUE, warning=FALSE}
+library(sf)
+st_crs(buildings) <- st_crs(bbo)
+buildings1 <- st_intersection(buildings, bbo)
+buildings2 <- st_buffer(buildings1, dist=-4)
+```
+
+```{r, echo=TRUE, warning=FALSE}
+plot(st_geometry(buildings2))
+```
+
+Next we create a dummy raster using **raster** with 1 meter resolution in the extent of the buildings object (note that `raster::extent()` works with **sf** objects, but the CRS must be given as a string):
+
+```{r, echo=TRUE}
+library(raster)
+resolution <- 1
+r <- raster(extent(buildings2), resolution=resolution, crs=st_crs(bbo)$proj4string)
+r[] <- resolution
+summary(r)
+```
+
+One of the `building3` component geometries was empty (permitted in **sf**, not in **sp**), so should be dropped before running `raster::cellFromPolygon()` to list raster cells in each geometry (so we need `unlist()` to assign `NA` to the in-buffered buildings):
+
+```{r, echo=TRUE, cache=TRUE, warning=FALSE}
+buildings3 <- as(buildings2[!st_is_empty(buildings2),], "Spatial")
+cfp <- cellFromPolygon(r, buildings3)
+is.na(r[]) <- unlist(cfp)
+summary(r)
+```
+
+```{r, echo=TRUE, warning=FALSE}
+plot(r)
+```
+
+Using **gdistance**, we create a symmetric transition object with an internal sparse matrix representation, from which shortest paths can be computed:
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+library(gdistance)
+```
+
+```{r, echo=TRUE, cache=TRUE}
+tr1 <- transition(r, transitionFunction=function(x) 1/mean(x), directions=8, symm=TRUE)
+```
+
+We need to find shortest paths from addresses with mortalities to the Broad Street pump first:
+
+```{r, echo=TRUE, cache=TRUE, warning=FALSE}
+sp_deaths <- as(deaths, "Spatial")
+d_b_pump <- st_length(st_as_sfc(shortestPath(tr1, as(b_pump, "Spatial"), sp_deaths, output="SpatialLines")))
+```
+
+and then in a loop from the same addresses to each of the other pumps in turn, finally taking the minimum:
+
+```{r, echo=TRUE, cache=TRUE, warning=FALSE}
+res <- matrix(NA, ncol=nrow(nb_pump), nrow=nrow(deaths))
+sp_nb_pump <- as(nb_pump, "Spatial")
+for (i in 1:nrow(nb_pump)) res[,i] <- st_length(st_as_sfc(shortestPath(tr1, sp_nb_pump[i,], sp_deaths, output="SpatialLines")))
+d_nb_pump <- apply(res, 1, min)
+```
+
+Because `sf::st_length()` uses **units** units, but they get lost in assigning to a matrix, we need to re-assign before testing whether the Broad Street pump is closer or not:
+
+```{r, echo=TRUE}
+library(units)
+units(d_nb_pump) <- "m"
+deaths$b_nearer <- d_b_pump < d_nb_pump
+by(deaths$Num_Css, deaths$b_nearer, sum)
+```
+
+
+
+## Recent challenges
+
+
+A recent upgrade of GEOS from 3.7.1 to 3.7.2 on a CRAN test server led to failures in three packages using **rgeos** for topological operations. **rgeos** 0.4-3 set the `checkValidity=`  argument to for example `gIntersection()` to FALSE (TRUE threw an error if either geometry was invalid). An [issue](https://github.com/r-spatial/sf/issues/1121) was opened on the **sf** github repository (**rgeos** is developed on R-Forge). The test objects (from an example from **inlmisc**) will be used here:
+
+```{r, echo=TRUE}
+rgeos::version_GEOS0()
+```
+
+For **rgeos** <= 0.4-3, the default was not to check input geometries for validity before trying topological operations, for >= 0.5-1, the default changes when GEOS > 3.7.1 to check for validity. The mode of the argument also changes to integer from logical:
+
+```{r, echo=TRUE, warning=FALSE}
+cV_old_default <- ifelse(rgeos::version_GEOS0() >= "3.7.2", 0L, FALSE)
+yy <- rgeos::readWKT(readLines("invalid.wkt"))
+rgeos::gIsValid(yy, byid=TRUE, reason=TRUE)
+```
+
+```{r, echo=TRUE}
+sf::sf_extSoftVersion()
+```
+
+The same underlyng GEOS code is used in **sf**:
+
+```{r, echo=TRUE}
+sf::st_is_valid(sf::st_as_sf(yy), reason=TRUE)
+```
+The geometries were also invalid in GEOS 3.7.1, but the operations succeeded:
+
+```{r, echo=TRUE, warning=FALSE}
+ply <- rgeos::readWKT(readLines("ply.wkt"))
+oo <- try(rgeos::gIntersection(yy, ply, byid=TRUE, checkValidity=cV_old_default), silent=TRUE)
+print(attr(oo, "condition")$message)
+```
+```{r, echo=TRUE}
+ooo <- try(sf::st_intersection(sf::st_as_sf(yy), sf::st_as_sf(ply)), silent=TRUE)
+print(attr(oo, "condition")$message)
+```
+In **rgeos** 0.5-1 and GEOS 3.7.2, new warnings are provided, and advice to check validity.
+
+```{r, echo=TRUE}
+cV_new_default <- ifelse(rgeos::version_GEOS0() >= "3.7.2", 1L, TRUE)
+try(rgeos::gIntersection(yy, ply, byid=TRUE, checkValidity=cV_new_default), silent=TRUE)
+```
+
+New options are provided, `get_RGEOS_CheckValidity()` and `set_RGEOS_CheckValidity()`, because in some packages the use of topological operations may happen through other packages, such as `raster::crop()` calling `rgeos::gIntersection()` without access to the arguments of the latter function.
+
+If we follow the advice, zero-width buffering is used to try to rectify the invalidity:
+
+```{r, echo=TRUE}
+oo <- rgeos::gIntersection(yy, ply, byid=TRUE, checkValidity=2L)
+rgeos::gIsValid(oo)
+```
+
+equivalently:
+
+```{r, echo=TRUE}
+oo <- rgeos::gIntersection(rgeos::gBuffer(yy, byid=TRUE, width=0), ply, byid=TRUE, checkValidity=1L)
+rgeos::gIsValid(oo)
+```
+
+and by extension to **sf** until GEOS 3.7.2 is accommodated:
+
+```{r, echo=TRUE}
+ooo <- sf::st_intersection(sf::st_buffer(sf::st_as_sf(yy), dist=0), sf::st_as_sf(ply))
+all(sf::st_is_valid(ooo))
+```
+
+The actual cause was the use of an ESRI/shapefile style/understanding of the self-touching exterior ring. In OGC style, an interior ring is required, but not in shapefile style. Martin Davis responded in the issue:
+
+> The problem turned out to be a noding robustness issue, which caused the valid input linework to have a self-touch after noding. This caused the output to be invalid. The fix was to tighten up the internal overlay noding validation check to catch this situation. This has the side-effect of detecting (and failing) all self-touches in input geometry. Previously, vertex-vertex self-touches were not detected, and in many cases they would simply propagate through the overlay algorithm. (This made the output invalid as well, but since the inputs were already invalid this behaviour was considered acceptable).
+
+The change in GEOS behaviour was not planned as such, but has consequences, fortunately detected because CRAN checks by default much more than say Travis by default. Zero-width buffering will not repair all cases of invalidity, but does work here.
+
+
+
+
+# Input/output
+
+```{r}
+sf_extSoftVersion()
+```
+
+
+![](sf_deps.png)
+
+While **sp** handed off dependencies to interfaces to external software GEOS (**rgeos**) and GDAL+PROJ (**rgdal**), **sf** includes all the external dependencies itself. This also means that **stars** needs **sf** to provide raster drivers (some other packages like **gdalcubes** themselves link to GDAL).
+
+```{r}
+sort(as.character(st_drivers("vector")$name))
+```
+
+The drivers provided by GDAL can (mostly) read from data formatted as described for the drivers, and can to a lesser extent write data out. Raster access can use spatial subsets of the data extent, something that is harder to do with vector. Proxy handling is similarly largely restricted to raster drivers.
+
+```{r}
+sort(as.character(st_drivers("raster")$name))
+```
+
+There are clear preferences among data providers and users for particular data formats, so some drivers get more exposure than others. For vector data, many still use `"ESRI SShapefile"`, although its geometries are not SF-compliant, and data on features are stored in variant DBF files (text tiles, numerically imprecise, field name length restrictions, encoding issues). `"geojson"` and `"GML"` are text files with numeric imprecision in coordinates as well as data fields. Among vector drivers, `"GPKG"` is a viable standard and should be used as far as possible.
+
+```{r}
+library(RSQLite)
+db = dbConnect(SQLite(), dbname="snow/b_pump.gpkg")
+dbListTables(db)
+```
+
+
+```{r}
+str(dbReadTable(db, "gpkg_geometry_columns"))
+```
+
+
+```{r}
+str(dbReadTable(db, "b_pump")$geom)
+```
+
+
+
+```{r}
+dbDisconnect(db)
+```
+
+```{r}
+str(st_layers("snow/b_pump.gpkg"))
+```
+
+
+```{r}
+st_layers("snow/nb_pump.gpkg")
+```
+
+```{r}
+library(rgdal)
+ogrInfo("snow/nb_pump.gpkg")
+```
+
+```{r}
+rgdal::GDALinfo("output/preview.tif")
+```
+
+
+```{r}
+obj <- GDAL.open("output/preview.tif")
+```
+
+
+```{r}
+dim(obj)
+```
+
+```{r}
+getDriverLongName(getDriver(obj))
+```
+
+```{r}
+image(getRasterData(obj, band=1, offset=c(100, 100), region.dim=c(200, 200)))
+```
+
+
+
+```{r}
+GDAL.close(obj)
+```
+
+
+All of these facilities are taken from GDAL; the raster facilities have been extant for many years. **raster** used the ease of subsetting to permit large rasters to be handled out-of-memory.
+
+Summary: `sf::st_read()` and `rgdal::readOGR()` are equivalent, as are `sf::st_write()` and `rgdal::writeOGR()`. When writing, you may need to take steps if overwriting. `rgdal::readGDAL()` reads the raster data (sub)set into an **sp** object, `stars::read_stars()` reads into a possibly proxy **stars** object, and **raster** can also be used:
+
+```{r}
+library(raster)
+(obj <- raster("output/preview.tif"))
+```
+
+Output: `rgdal::writeGDAL()`, `stars::write_stars()` or `raster::writeRaster()` may be used for writing, but what happens depends on details, such as storage formats. Unlike vector, most often storage formats will be taken as homogeneous by type.
+
+### Tiled representations
+
+While interactive web mapping interfaces use raster or vector tiled backgrounds, we have not (yet) approached tiles or pyramids internally.
+
+
+
+
+
+
+
+
+
+
+

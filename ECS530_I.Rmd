@@ -1,0 +1,691 @@
+---
+title: "ECS530: (I) Representation of spatial data"
+author: "Roger Bivand"
+date: "Monday 2 December 2019, 09:15-11.00, aud. C"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+theme: united
+bibliography: ecs530.bib
+link-citations: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+### Copyright
+
+All the material presented here, to the extent it is original, is available under [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/). Parts build on joint tutorials with Edzer Pebesma.
+
+### Required current contributed CRAN packages:
+
+I am running R 3.6.1, with recent `update.packages()`.
+
+```{r, echo=TRUE}
+needed <- c("raster", "stars", "abind", "elevatr", "sp", "mapview", "sf", "osmdata")
+```
+
+### Script
+
+Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_I.zip. Download to suitable location, unzip and use as basis.
+
+## Schedule
+
+- 2/12 **(I) Spatial data representation**, (II) Support+topology, input/output
+
+- 3/12 (III) Coordinate reference systems, (IV) Visualization
+
+- 4/12 (V) R/GIS interfaces, *project surgery*
+
+- 5/12 (VI) Spatial autocorrelation, (VII) Spatial regression
+
+- 6/12 (VIII) Interpolation, point processes, *project surgery*
+
+- 7/12 *Presentations*
+
+## Outline
+
+Introduction and background: why break stuff (why not)?
+
+Data input/output and representation: movement from legacy **sp** to standards-compliant **sf** representation; coordinate reference systems; developments similar to `GeoPandas` and `Shapely` in Python
+
+Opportunities in visualization (**tmap**, **mapview**), but also challenges when upstream software libraries evolve (PROJ/GDAL)
+
+Spatial weights and measures of autocorrelation: software packages previously using the **sp** representation may add **sf** representation or replace **sp** with **sf**; **spdep** can use both for constructing spatial weights
+
+Spatial regression: model estimation and handling split out from **spdep** to **spatialreg**; fewer reverse dependencies, quicker changes
+
+
+## Session I
+
+- 09:15-09:45 Course startup, practical matters, background
+
+- 09:45-10:30 Vector representation: **sf** replaces **sp**, **rgeos** and **rgdal**: vector
+
+- 10:30-11:00 Raster representation: **stars**/**sf** replace **sp** and **rgdal**: **raster** remains for now
+
+# R-Spatial: getting to here and now
+
+### Background
+
+In the early and mid 1990s, those of us who were teaching courses in spatial analysis beyond the direct application of geographical information systems (GIS) found the paucity of software limiting. 
+
+In institutions with funding for site licenses for GIS, it was possible to write or share scripts for Arc/Info (in AML), ArcView (in Avenue), or later in Visual Basic for ArcGIS. 
+
+If site licenses and associated dongles used in the field were a problem (including students involved in fieldwork in research projects), there were few alternatives, but opportunities were discussed on mailing lists. 
+
+From late 1996, the R programmimg language and environment began to be seen as an alternative for teaching and research involving spatial analysis. 
+
+R uses much of the syntax of S, then available commercially as S-Plus, but was and remains free to install, use and extend under the GNU General Public License (GPL). 
+
+In addition, it could be installed portably across multiple operating systems, including Windows and Apple MACOS. 
+
+At about the same time, the S-Plus SpatialStats module was published [@kaluznyetal:98], and a meeting occurred in Leicester to which many of those looking for solutions took part. 
+
+Much of the porting of S code to R for spatial statistics was begun by Albrecht Gebhardt as soon as the R package mechanism matured. Since teachers moving courses from S to R needed access to the S libraries previously used, porting was a crucial step. 
+
+CRAN listings show **tripack** [@tripack-package] and **akima** [@akima-package] - both with non-open source licenses - available from August 1998 ported by Albrecht Gebhardt; **ash** and **sgeostat** [@sgeostat-package] followed in April 1999. 
+
+The **spatial** package was available as part of **MASS** [@venables_modern_2002], also ported in part by Albrecht Gebhardt.
+
+In the earliest period, CRAN administrators helped practically with porting and publication. 
+
+Albrecht and I presented an overview of possibilities of usin R for research and teaching in spatial analysis and statistics in August 1998 [@Bivand2000].
+
+The S-PLUS version of **splancs** provided point pattern analysis  [@rowlingson+diggle:93; @splancs-package]. 
+
+I had contacted Barry Rowlingson in 1997 but only moved forward with porting as R's ability to load shared objects advanced. 
+
+In September 1998, I wrote to him: "It wasn't at all difficult to get things running, which I think is a result of your coding, thank you!" 
+
+However, I added this speculation: "An issue I have thought about a little is whether at some stage Albrecht and I wouldn't integrate or harmonize the points and pairs objects in **splancs**, **spatial** and **sgeostat** - they aren't the same, but for users maybe they ought to appear to be so". 
+
+This concern with class representations for geographical data turned out to be fruitful.
+
+A further step was to link GRASS and R [@bivand_using_2000], and followed up at several meetings and working closely with Markus Neteler. 
+
+The interface has evolved, and its almost current status is presented by [@geocompr], we return to the current status below. 
+
+A consequence of this work was that the CRAN team suggested that I attend a meeting in Vienna in early 2001 to talk about the GRASS GIS interface. 
+
+The meeting gave unique insights into the dynamics of R development, and very valuable contacts. 
+
+Later the same year Luc Anselin and Serge Rey asked me to take part in a workshop in Santa Barbara, which again led to many fruitful new contacts [@bivand:06]. 
+
+Further progress was made in spatial econometrics [@bivand:02].
+
+### 2003 Vienna workshop
+
+During the second half of 2002, it seemed relevant to propose a spatial statistics paper session at the next Vienna meeting to be held in March 2003, together with a workshop to discuss classes for spatial data. 
+
+I had reached out to Edzer Pebesma as an author of the stand-alone open source program `gstat` [@pebesma98]; it turned out that he had just been approached to wrap the program for S-Plus. 
+
+He saw the potential of the workshop immediately, and in November 2002 wrote in an email: "I wonder whether I should start writing S classes. I'm afraid I should." 
+
+Virgilio Gómez-Rubio had been developing two spatial packages, **RArcInfo** [@rarcinfo; @rarcinfo-package] and **DCluster** [@gomez-rubioetal05; @DCluster-package], and was committed to participating. 
+
+Although he could not get to the workshop, Nicholas Lewin-Koh wrote in March 2003 that: "I was looking over all the DSC material, especially the spatial stuff. I did notice, after looking through peoples' packages that there is a lot of duplication of effort. My suggestion is that we set up a repository for spatial packages similar to the Bioconductor mode, where we have a base spatial package that has S-4 based methods and classes that are efficient and general."
+
+Straight after the workshop, a collaborative repository for the development of software using SourceForge was established, and the R-sig-geo mailing list (still with over 3,500 subscribers) was created to facilitate interaction. 
+
+### Beginnings of **sp**
+
+So the mandate for the development of the **sp** package emerged in discussions between interested contributors before, during, and especially following the 2003 Vienna workshop. 
+
+Coding meetings were organized by Barry Rowlingson in Lancaster in November 2004 and by Virgilio Gómez-Rubio in Valencia in May 2005, at both of which the class definitions and implementations were stress-tested and often changed radically; the package was first published on CRAN in April 2005. 
+
+The underlying model adopted was for S4 (new-style) classes to be used, for `"Spatial"` objects, whether raster or vector, to behave like `"data.frame"` objects, and for visualization methods to make it easy to show the objects.
+
+### Relationships with other packages
+
+From an early point in time, object conversion (known as coercion in S and R) to and from **sp** classes and classes in for example the **spatstat** package [@baddeley+turner05; @baddeleyetal15; @spatstat-package]. 
+
+Packages could choose whether they would use **sp** classes and methods directly, or rather use those classes for functionality that they did not provide themselves through coercion.
+
+Reading and writing ESRI Shapefiles had been possible using the **maptools** package [@maptools-package] available from CRAN since August 2003, but **rgdal**, on CRAN from November 2003, initially only supported raster data read and written using the external GDAL library [@gdal]. 
+
+Further code contributions by Barry Rowlingson for handling projections using the external PROJ.4 library and the vector drivers in the then OGR part of GDAL were folded into **rgdal**, permitting reading into **sp**-objects and writing from **sp**-objects of vector and raster data. 
+
+### Completing the **sp**-verse
+
+For vector data it became possible to project coordinates, and in addition to transform them where datum specifications were available. 
+
+Until recently, the interfaces to external libraries GDAL and PROJ have been relatively stable, and upstream changes have not led to breaking changes for users of packages using **sp** classes or **rgdal** functionalities, although they have involved significant maintenance effort. 
+
+The final part of the framework for spatial vector data handling was the addition of the **rgeos** package interfacing the external GEOS library in 2011, thanks to Colin Rundell's 2010 Google Summer of Coding project. 
+
+The **rgeos** package provided vector topological predicates and operations typically found in GIS such as intersection; note that by this time, both GDAL and GEOS used the Simple Features vector representation internally.
+
+### ASDAR first edition
+
+By the publication of ASDAR [@asdar1], a few packages not written or maintained by the book authors and their nearest collaborators had begun to use **sp** classes. By the publication of the second edition [@asdar2], we had seen that the number of packages depending on **sp**, importing from and suggesting it (in CRAN terminology for levels of dependency) had grown strongly. In late 2014, [@de-vries14] looked at CRAN package clusters from a page rank graph, and found a clear spatial cluster that we had not expected. This cluster is from late November 2019:
+
+```{r, echo = FALSE, eval=FALSE} 
+BCrepos <- BiocManager::repositories()
+bioc <- available.packages(repo = BCrepos[1])
+bioc_ann <- available.packages(repo = BCrepos[2])
+bioc_exp <- available.packages(repo = BCrepos[3])
+cran <- available.packages()
+saveRDS(cran, file="cran_191118.rds")
+pdb <- rbind(cran, bioc, bioc_ann, bioc_exp)
+saveRDS(pdb, file="pdb_191118.rds")
+```
+
+
+```{r, echo = FALSE, eval=FALSE} 
+pdb <- readRDS("pdb_191118.rds")
+suppressPackageStartupMessages(library(miniCRAN))
+suppressPackageStartupMessages(library(igraph))
+suppressPackageStartupMessages(library(magrittr))
+pg <- makeDepGraph(pdb[, "Package"], availPkgs = pdb, suggests=TRUE, enhances=TRUE, includeBasePkgs = FALSE)
+pr <- pg %>%
+  page.rank(directed = FALSE) %>%
+  use_series("vector") %>%
+  sort(decreasing = TRUE) %>%
+  as.matrix %>%
+  set_colnames("page.rank")
+  cutoff <- quantile(pr[, "page.rank"], probs = 0.2)
+popular <- pr[pr[, "page.rank"] >= cutoff, ]
+toKeep <- names(popular)
+vids <- V(pg)[toKeep]
+gs <- induced.subgraph(pg, vids = toKeep)
+cl <- walktrap.community(gs, steps = 3)
+topClusters <- table(cl$membership) %>%
+  sort(decreasing = TRUE) %>%
+  head(25)
+cluster <- function(i, clusters, pagerank, n=10){
+  group <- clusters$names[clusters$membership == i]
+  pagerank[group, ] %>% sort(decreasing = TRUE) %>% head(n)
+}
+z <- lapply(names(topClusters)[1:15], cluster, clusters=cl, pagerank=pr, n=40)
+saveRDS(z, file="all_z_191118.rds")
+```
+
+```{r plot4a, cache=TRUE, echo=FALSE, eval=TRUE}
+suppressPackageStartupMessages(library(wordcloud))
+z <- readRDS("all_z_191118.rds")
+oopar <- par(mar=c(0,0,0,0)+0.1)
+wordcloud(names(z[[4]]), freq=unname(z[[4]])) # sf 2 sp 4
+par(oopar)
+```
+
+# Spatial data
+
+Spatial data typically combine position data in 2D (or 3D), attribute data and metadata related to the position data. Much spatial data could be called map data or GIS data. We collect and handle much more position data since global navigation satellite systems (GNSS) like GPS came on stream 20 years ago, earth observation satellites have been providing data for longer.
+
+```{r, echo = TRUE}
+suppressPackageStartupMessages(library(osmdata))
+library(sf)
+```
+
+```{r, cache=TRUE, echo = TRUE}
+bbox <- opq(bbox = 'bergen norway')
+byb0 <- osmdata_sf(add_osm_feature(bbox, key = 'railway',
+  value = 'light_rail'))$osm_lines
+tram <- osmdata_sf(add_osm_feature(bbox, key = 'railway',
+  value = 'tram'))$osm_lines
+byb1 <- tram[!is.na(tram$name),]
+o <- intersect(names(byb0), names(byb1))
+byb <- rbind(byb0[,o], byb1[,o])
+saveRDS(byb, file="byb.rds")
+```
+
+Spatial vector data is based on points, from which other geometries are constructed. Vector data is often also termed object-based spatial data. The light rail tracks are 2D vector data. The points themselves are stored as double precision floating point numbers, typically without recorded measures of accuracy (GNSS provides a measure of accuracy). Here, lines are constructed from points.
+
+
+```{r, echo = TRUE}
+library(mapview)
+mapview(byb)
+```
+
+### Data handling
+
+We can download monthly CSV files of [\textcolor{mLightBrown}{city bike}](https://bergenbysykkel.no/en/open-data) use, and manipulate the input to let us use the **stplanr** package to aggregate origin-destination data. One destination is in Oslo, some are round trips, but otherwise things are OK. We can use [\textcolor{mLightBrown}{CycleStreets}](www.cyclestreets.net) to route the volumes onto [\textcolor{mLightBrown}{OSM}](https://www.openstreetmap.org/copyright) cycle paths, via an API and API key. We'd still need to aggregate the bike traffic by cycle path segment for completeness.
+
+```{r, echo = TRUE, eval=FALSE, cache=TRUE}
+bike_fls <- list.files("bbs")
+trips0 <- NULL
+for (fl in bike_fls) trips0 <- rbind(trips0,
+  read.csv(file.path("bbs", fl), header=TRUE))
+trips0 <- trips0[trips0[, 8] < 6 & trips0[, 13] < 6,]
+trips <- cbind(trips0[,c(1, 4, 2, 9)], data.frame(count=1))
+from <- unique(trips0[,c(4,5,7,8)])
+names(from) <- substring(names(from), 7)
+to <- unique(trips0[,c(9,10,12,13)])
+names(to) <- substring(names(to), 5)
+stations0 <- st_as_sf(merge(from, to, all=TRUE),
+  coords=c("station_longitude", "station_latitude"))
+stations <- aggregate(stations0, list(stations0$station_id),
+  head, n=1)
+suppressWarnings(stations <- st_cast(stations, "POINT"))
+st_crs(stations) <- 4326
+od <- aggregate(trips[,-(1:4)], list(trips$start_station_id,
+  trips$end_station_id), sum)
+od <- od[-(which(od[,1] == od[,2])),]
+library(stplanr)
+od_lines <- od2line(flow=od, zones=stations, zone_code="Group.1",
+  origin_code="Group.1", dest_code="Group.2")
+saveRDS(od_lines, "od_lines.rds")
+Sys.setenv(CYCLESTREET="XxXxXxXxXxXxXxXx")
+od_routes <- line2route(od_lines, "route_cyclestreet",
+  plan = "fastest")
+saveRDS(od_routes, "od_routes.rds")
+```
+
+Origin-destination lines
+
+```{r plot3, cache=TRUE, eval=TRUE}
+od_lines <- readRDS("od_lines.rds")
+mapview(od_lines, alpha=0.2, lwd=(od_lines$x/max(od_lines$x))*10)
+```
+
+Routed lines along cycle routes
+
+```{r plot4, cache=TRUE, eval=TRUE}
+od_routes <- readRDS("od_routes.rds")
+mapview(od_routes, alpha=0.2, lwd=(od_lines$x/max(od_lines$x))*10)
+```
+
+
+## Advancing from the **sp** representation
+
+### Representing spatial vector data in R (**sp**)
+
+
+The **sp** package was a child of its time, using S4 formal classes, and the best compromise we then had of positional representation (not arc-node, but hard to handle holes in polygons). If we coerse `byb` to the **sp** representation, we see the formal class structure. Input/output used OGR/GDAL vector drivers in the **rgdal** package, and topological operations used GEOS in the **rgeos** package.
+
+
+```{r, echo = TRUE}
+library(sp)
+byb_sp <- as(byb, "Spatial")
+str(byb_sp, max.level=2)
+```
+
+```{r, echo = TRUE}
+str(slot(byb_sp, "lines")[[1]])
+```
+
+### Raster data
+
+Spatial raster data is observed using rectangular (often square) cells, within which attribute data are observed. Raster data are very rarely object-based, very often they are field-based and could have been observed everywhere. We probably do not know where within the raster cell the observed value is correct; all we know is that at the chosen resolution, this is the value representing the whole cell area.
+
+```{r, echo = TRUE, eval=FALSE}
+library(elevatr)
+elevation <- get_elev_raster(byb_sp, z = 10)
+is.na(elevation) <- elevation < 1
+saveRDS(elevation, file="elevation.rds")
+```
+
+```{r, echo = TRUE}
+elevation <- readRDS("elevation.rds")
+str(elevation, max.level=2)
+```
+
+```{r, echo=TRUE}
+str(as(elevation, "SpatialGridDataFrame"), max.level=2)
+```
+
+```{r, echo = TRUE, eval=TRUE, cache=TRUE}
+mapview(elevation, col=topo.colors)
+```
+
+
+### Raster data
+
+The **raster** package complemented **sp** for handling raster objects and their interactions with vector objects. 
+
+It added to input/output using GDAL through **rgdal**, and better access to NetCDF files for GDAL built without the relevant drivers. 
+
+It may be mentioned in passing that thanks to help from CRAN administrators and especially Brian Ripley, CRAN binary builds of **rgdal** for Windows and Apple Mac OSX became available from 2006, but with a limited set of vector and raster drivers. 
+
+Support from CRAN adminstrators remains central to making packages available to users who are not able to install R source packages themselves, particularly linking to external libraries. 
+
+Initially, **raster** was written in R using functionalities in **sp** and **rgdal** with **rgeos** coming later. 
+
+It used a feature of GDAL raster drivers permitting the successive reading of subsets of rasters by row and column, permitting the processing of much larger objects than could be held in memory. 
+
+In addition, the concepts of bricks and stacks of rasters were introduced, diverging somewhat from the **sp** treatment of raster bands as stacked columns as vectors in a data frame.
+
+### Questions arose
+
+As **raster** evolved, two other packages emerged raising issues with the ways in which spatial objects had been conceptualized in **sp**. 
+
+The **rgeos** package used the C application programming interface (API) to the C++ GEOS library, which is itself a translation of the Java Topology Suite (JTS). 
+
+While the GDAL vector drivers did use the standard Simple Features representation of ector geometries, it was not strongly enforced. 
+
+This laxity now seems most closely associated with the use of ESRI Shapefiles as a de-facto file standard for representation, in which many Simple Features are not consistently representable. 
+
+### Need for vector standards compliance
+
+Both JTS and GEOS required a Simple Feature compliant representation, and led to the need for curious and fragile adaptations. 
+
+For example, these affected the representation of **sp** `"Polygons"` objects, which were originally conceptualized after the Shapefile specification: ring direction determined whether a ring was exterior or interior (a hole), but no guidance was given to show which exterior ring holes might belong to. 
+
+As R provides a way to add a character string comment to any object, comments were added to each `"Polygons"` object encoding the necessary information. 
+
+In this way, GEOS functionality could be used, but the fragility of vector representation in **sp** was made very obvious.
+
+### Spatio-temporal data
+
+Another package affecting thinking about representation was **spacetime**, as it diverged from **raster** by stacking vectors for regular spatio-temporal objects with space varying faster than time. 
+
+So a single earth observation band observed repeatedly would be stored in a single vector in a data frame, rather than in the arguably more robust form of a four-dimensional array, with the band taking one position on the final dimension. 
+
+The second edition of [@asdar2] took up all of these issues in one way or another, but after completing a spatial statistics special issue of the Journal of Statistical Software [@JSSv063i01], it was time to begin fresh implementations of classes for spatial data.
+
+## Simple Features in R
+
+
+It was clear that vector representations needed urgent attention, so the **sf** package was begun, aiming to implement the most frequently used parts of the specification [@iso19125; @kralidis08; @sfa]. 
+
+Development was supported by a grant from the then newly started R Consortium, which brings together R developers and industry members. 
+
+A key breakthrough came at the useR! 2016 conference, following an earlier decision to re-base vector objects on data frames, rather than as in **sp** to embed a data frame inside a collection of spatial features of the same kind. 
+
+However, although data frame objects in S and R have always been able to take list columns as valid columns, such list columns were not seen as "tidy" [@JSSv059i10].
+
+
+### Refresher: data frame objects
+
+First, let us see that is behind the `data.frame` object: the `list` object. `list` objects are vectors that contain other objects, which can be addressed by name or by 1-based indices . Like the vectors we have already met, lists can be  accessed and manipulated using square brackets `[]`. Single list elements can be accessed and manipulated using double square brackets `[[]]`
+
+Starting with four vectors of differing types, we can assemble a list object; as we see, its structure is quite simple. The vectors in the list may vary in length, and lists can (and do often) include lists
+
+
+```{r , echo = TRUE}
+V1 <- 1:3
+V2 <- letters[1:3]
+V3 <- sqrt(V1)
+V4 <- sqrt(as.complex(-V1))
+L <- list(v1=V1, v2=V2, v3=V3, v4=V4)
+```
+
+
+
+```{r , echo = TRUE}
+str(L)
+L$v3[2]
+L[[3]][2]
+```
+
+Our `list` object contains four vectors of different types but of the same length; conversion to a `data.frame` is convenient. Note that by default strings are converted into factors:
+
+
+```{r , echo = TRUE}
+DF <- as.data.frame(L)
+str(DF)
+DF <- as.data.frame(L, stringsAsFactors=FALSE)
+str(DF)
+```
+
+
+We can also provoke an error in conversion from a valid `list` made up of vectors of different length to a `data.frame`:
+
+
+```{r , echo = TRUE}
+V2a <- letters[1:4]
+V4a <- factor(V2a)
+La <- list(v1=V1, v2=V2a, v3=V3, v4=V4a)
+DFa <- try(as.data.frame(La, stringsAsFactors=FALSE), silent=TRUE)
+message(DFa)
+```
+
+
+We can access `data.frame` elements as `list` elements, where the `$` is effectively the same as `[[]]` with the list component name as a string:
+
+
+```{r , echo = TRUE}
+DF$v3[2]
+DF[[3]][2]
+DF[["v3"]][2]
+```
+
+
+Since a `data.frame` is a rectangular object with named columns with equal numbers of rows, it can also be indexed like a matrix, where the rows are the first index and the columns (variables) the second:
+
+
+```{r , echo = TRUE}
+DF[2, 3]
+DF[2, "v3"]
+str(DF[2, 3])
+str(DF[2, 3, drop=FALSE])
+```
+
+
+If we coerce a `data.frame` containing a character vector or factor into a matrix, we get a character matrix; if we extract an integer and a numeric column, we get a numeric matrix.
+
+
+```{r , echo = TRUE}
+as.matrix(DF)
+as.matrix(DF[,c(1,3)])
+```
+
+The fact that `data.frame` objects descend from `list` objects is shown by looking at their lengths; the length of a matrix is not its number of columns, but its element count:
+
+
+```{r , echo = TRUE}
+length(L)
+length(DF)
+length(as.matrix(DF))
+```
+
+
+There are `dim` methods for `data.frame` objects and matrices (and arrays with more than two dimensions); matrices and arrays are seen as vectors with dimensions; `list` objects have no dimensions:
+
+
+```{r , echo = TRUE}
+dim(L)
+dim(DF)
+dim(as.matrix(DF))
+```
+
+
+```{r , echo = TRUE}
+str(as.matrix(DF))
+```
+
+
+
+`data.frame` objects have `names` and `row.names`, matrices have `dimnames`, `colnames` and `rownames`; all can be used for setting new values:
+
+
+```{r , echo = TRUE}
+row.names(DF)
+names(DF)
+names(DF) <- LETTERS[1:4]
+names(DF)
+str(dimnames(as.matrix(DF)))
+```
+
+
+R objects have attributes that are not normally displayed, but which show their structure and class (if any); we can see that `data.frame` objects are quite different internally from matrices:
+
+
+```{r , echo = TRUE}
+str(attributes(DF))
+str(attributes(as.matrix(DF)))
+```
+
+
+If the reason for different vector lengths was that one or more observations are missing on that variable, `NA` should be used; the lengths are then equal, and a rectangular table can be created:
+
+
+```{r , echo = TRUE}
+V1a <- c(V1, NA)
+V3a <- sqrt(V1a)
+La <- list(v1=V1a, v2=V2a, v3=V3a, v4=V4a)
+DFa <- as.data.frame(La, stringsAsFactors=FALSE)
+str(DFa)
+```
+
+
+### Tidy list columns
+
+
+```{r, echo = TRUE} 
+DF$E <- list(d=1, e="1", f=TRUE)
+str(DF)
+```
+
+At useR! in 2016, list columns were declared "tidy", using examples including the difficulty of encoding polygon interior rings in non-list columns. The decision to accommodate "tidy" workflows as well as base-R workflows had already been made, as at least some users only know how to use ``tidy'' workflows. 
+
+
+### **sf** begins
+
+[@RJ-2018-009] shows the status of the **sf** towards the end of 2017, with a geometry list column containing R wrappers around objects adhering to Simple Features specification definitions. The feature geometries are stored in numeric vectors, matrices, or lists of matrices, and may also be subject to arithmetic operations. Features are held in the `"XY"` class if two-dimensional, or `"XYZ"`, `"XYM"` or `"XYZM"` if such coordinates are available; all single features are `"sfg"` (Simple Feature geometry) objects: 
+
+```{r, echo = TRUE} 
+pt1 <- st_point(c(1,3))
+pt2 <- pt1 + 1
+pt3 <- pt2 + 1
+str(pt3)
+```
+
+Geometries may be represented as "Well Known Text" (WKT):
+
+
+```{r, echo = TRUE} 
+st_as_text(pt3)
+```
+
+or as "Well Known Binary" (WKB) as in databases' "binary large objects" (BLOBs), resolving the problem of representation when working with GDAL vector drivers and functions, and with GEOS predicates and topological operations:
+
+
+```{r, echo = TRUE} 
+st_as_binary(pt3)
+```
+
+A column of simple feature geometries (`"sfc"`) is constructed as a list of `"sfg"` objects, which do not have to belong to the same Simple Features category: 
+
+```{r, echo = TRUE} 
+pt_sfc <- st_as_sfc(list(pt1, pt2, pt3))
+str(pt_sfc)
+```
+
+Finally, an `"sfc"` object, a geometry column, can be added to a `data.frame` object using `st_geometry()`, which sets a number of attributes on the object and defines it as also being an `"sf"` object (the `"agg"` attribute if populated shows how observations on non-geometry columns should be understood):
+
+```{r, echo = TRUE} 
+st_geometry(DF) <- pt_sfc
+(DF)
+```
+
+The **sf** package does not implement all of the Simple Features geometry categories, but geometries may be converted to the chosen subset, using for example the `gdal_utils()` function with `util="ogr2ogr", options="-nlt CONVERT_TO_LINEAR"` to convert curve geometries in an input file to linear geometries. 
+
+Many of the functions in the **sf** package begin with `st_` as a reference to the same usage in PostGIS, where the letters were intended to symbolise space and time, but where time has not yet been implemented.
+
+**sf** also integrates GEOS topological predicates and operations into the same framework, replacing the **rgeos** package for access to GEOS functionality. The precision and scale defaults differ between **sf** and **rgeos** slightly; both remain fragile with respect to invalid geometries, of which there are many in circulation.
+\endcol
+
+\begincol{0.48\textwidth}
+```{r, echo = TRUE} 
+(buf_DF <- st_buffer(DF, dist=0.3))
+```
+\endcol
+\endcols
+
+
+
+## Raster representations: **stars**
+
+Like **sf**, **stars** was supported by an R Consortium grant, for scalable, spatio-temporal tidy arrays for R. 
+
+Spatio-temporal arrays were seen as an alternative way of representing multivariate spatio-temporal data from the choices made in the **spacetime** package, where a two-dimensional data frame contained stacked positions within stacked time points or intervals. 
+
+The proposed arrays might collapse to a raster layer if only one variable was chosen for one time point or interval. 
+
+More important, the development of the package was extended to accommodate a backend for earth data processing in which the data are retrieved and rescaled as needed from servers, most often cloud-based servers.
+
+
+This example only covers a multivariate raster taken from a Landsat 7 view of a small part of the Brazilian coast. In the first part, a GeoTIFF file is read into memory, using three array dimensions, two in planar space, the third across six bands:
+
+```{r, echo = TRUE} 
+library(stars)
+fn <- system.file("tif/L7_ETMs.tif", package = "stars")
+L7 <- read_stars(fn)
+L7
+```
+
+The bands can be operated on arithmetically, for example to generate a new object containing values of the normalized difference vegetation index through a function applied across the $x$ and $y$ spatial dimensions:
+
+```{r, echo = TRUE} 
+ndvi <- function(x) (x[4] - x[3])/(x[4] + x[3])
+(s2.ndvi <- st_apply(L7, c("x", "y"), ndvi))
+```
+
+The same file can also be accessed using the proxy mechanism, shich creates a link to the external entity, here a file:
+
+```{r, echo = TRUE} 
+L7p <- read_stars(fn, proxy=TRUE)
+L7p
+```
+
+The same function can also be applied across the same two spatial dimentions of the array, but no calculation is carried out until the data is needed and the output resolution known:
+
+```{r, echo = TRUE} 
+(L7p.ndvi = st_apply(L7p, c("x", "y"), ndvi))
+```
+
+The array object can also be split, here on the band dimension, to yield a representation as six rasters in list form:
+
+```{r, echo = TRUE} 
+(x6 <- split(L7, "band"))
+```
+
+
+These rasters may also be subjected to arithmetical operations, and as may be seen, explicit arithmetic on the six rasters has the same outcome as applying the same calculatiob to the three-dimensional array:
+
+```{r, echo = TRUE} 
+x6$mean <- (x6[[1]] + x6[[2]] + x6[[3]] + x6[[4]] + x6[[5]] +
+              x6[[6]])/6
+xm <- st_apply(L7, c("x", "y"), mean)
+all.equal(xm[[1]], x6$mean)
+```
+
+
+### openeo
+
+[OpenEO](http://openeo.org/about/) proposes proof-of-concept client-server API approaches. The sample data sets are from the southern Alps, and the project is under development.
+
+```{r, echo=TRUE}
+if (!dir.exists("output")) dir.create("output")
+```
+
+```{r, echo = TRUE, message=FALSE, warning=FALSE, cache=TRUE}
+library(openeo) # v 0.3.1
+euracHost = "http://saocompute.eurac.edu/openEO_0_3_0/openeo/"
+eurac = connect(host = euracHost,disable_auth = TRUE)
+pgb = eurac %>% pgb()
+bb <- list(west=10.98,east=11.25,south=46.58,north=46.76)
+tt <- c("2017-01-01T00:00:00Z","2017-01-31T00:00:00Z")
+pgb$collection$S2_L2A_T32TPS_20M %>%
+  pgb$filter_bbox(extent=bb) %>%
+  pgb$filter_daterange(extent=tt) %>%
+  pgb$NDVI(red="B04",nir="B8A") %>%
+  pgb$min_time() -> task
+tf <- "output/preview.tif"
+preview <- preview(eurac, task=task, format="GTiff",
+  output_file=tf)
+```
+
+```{r, echo = TRUE}
+plot(read_stars(preview))
+```
+
+
+### gdalcubes 
+
+Earth Observation Data Cubes from Satellite Image Collections - extension of the **stars** proxy mechansim and the **raster** out-of-memory approach: (https://github.com/appelmar/gdalcubes_R).
+
+Processing collections of Earth observation images as on-demand multispectral, multitemporal data cubes. Users define cubes by spatiotemporal extent, resolution, and spatial reference system and let 'gdalcubes' automatically apply cropping, reprojection, and resampling using the 'Geospatial Data Abstraction Library' ('GDAL'). 
+
+Implemented functions on data cubes include reduction over space and time, applying arithmetic expressions on pixel band values, moving window aggregates over time, filtering by space, time, bands, and predicates on pixel values, materializing data cubes as 'netCDF' files, and plotting. User-defined 'R' functions can be applied over chunks of data cubes. The package implements lazy evaluation and multithreading. See also [a five month old blog post](https://www.r-spatial.org//r/2019/07/18/gdalcubes1.html).
+
+
+

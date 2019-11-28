@@ -1,0 +1,396 @@
+---
+title: "ECS530: (III) Coordinate reference systems"
+author: "Roger Bivand"
+date: "Tuesday 3 December 2019, 09:15-11.00, aud. C"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+theme: united
+bibliography: ecs530.bib
+link-citations: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+### Copyright
+
+All the material presented here, to the extent it is original, is available under [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/). Parts build on joint tutorials with Edzer Pebesma.
+
+### Required current contributed CRAN packages:
+
+I am running R 3.6.1, with recent `update.packages()`.
+
+```{r, echo=TRUE}
+needed <- c("RSQLite", "mapview", "sf", "rgdal", "sp")
+```
+
+### Script
+
+Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_III.zip. Download to suitable location, unzip and use as basis.
+
+## Schedule
+
+- 2/12 (I) Spatial data representation, (II) Support+topology, input/output
+
+- 3/12 **(III) Coordinate reference systems**, (IV) Visualization
+
+- 4/12 (V) R/GIS interfaces, *project surgery*
+
+- 5/12 (VI) Spatial autocorrelation, (VII) Spatial regression
+
+- 6/12 (VIII) Interpolation, point processes, *project surgery*
+
+- 7/12 *Presentations*
+
+
+## Session III
+
+- 09:15-09:45 Coordinate reference systems: background
+
+- 09:45-10:15 Modernising PROJ and issues
+
+- 10:15-11:00 Proposed developments (using **sp** and **rgdal** as prototypes)
+
+# Coordinate reference systems: background
+
+The usefulness of spatial data is linked to knowing its coordinate reference system. The coordinate reference system may be geographic, usually measured in decimal degrees, or projected, layered on a known geographic CRS, usually measured in metres (planar). The underlying geographical CRS must specify an ellipsoid, with associated major and minor axis lengths:
+
+```{r}
+library(sp)
+library(rgdal)
+projInfo("ellps")
+```
+
+Other parameters should be specified, such as the prime meridian, often taken as Greenwich. Before PROJ version 6, legacy PROJ (and GDAL) used a `+datum=` tag introduced after the library migrated beyond USGS (around version 4.4). The underlying problem was not that projection and inverse projection could not be carried out between projected CRS and geograpghical CRS, but that national mapping agencies defined often many datums, keying the specification of a geographical CRS to a national or regional datum. Some of these, especially for North America, were supported, but support for others was patchy. The `+datum=` tag supported a partly informal listing of values, themselves linked to three or seven coefficient datum transformation sets, used through the `+towgs84=` tag. Coefficient lookup through the `+datum=` tag, or direct specification of coefficients through the `+towgs84=` tag became a convenient way to handle datum transformation in addition to projection and inverse projection.
+
+The default "hub" for transformation was to go through the then newly achieved WGS84 datum. Spatial data files often encoded the geographic and projected CRS with reference to these values, in some cases using PROJ 4 strings. These used a pseudo projection `+proj=longlat` to indicate a geographical CRS, and many other possible values of `+proj=` for projected CRS.
+
+The [Grids & Datums column](https://www.asprs.org/asprs-publications/grids-and-datums) in *Photogrammetric Engineering & Remote Sensing* gives insight into some of the peculiarities of national mapping agencies - authority is typically national but may be subnational:
+
+```{r}
+data("GridsDatums")
+GridsDatums[grep("Norway", GridsDatums$country),]
+```
+
+Beyond this, the database successively developed by the European Petroleum Survey Group was copied to local CSV files for PROJ and GDAL, providing lookup by code number. 
+
+```{r}
+EPSG <- make_EPSG()
+EPSG[grep("Oslo", EPSG$note), 1:2]
+```
+
+
+```{r}
+CRS("+init=epsg:4817")
+```
+
+The lookup prior to PROJ 6 used to provide a `+towgs84=` value of `278.3,93,474.5,7.889,0.05,-6.61,6.21`, but in the new regime only reveals transformation coefficients in the context of a coordinate operation (only in the unreleased development version of **rgdal**):
+
+
+```{r}
+list_coordOps("EPSG:4817", "EPSG:4326")
+```
+
+Up to and including PROJ 5, downstream software, like **sf** and **rgdal**, have been able to rely on the provision of *ad-hoc* transformtion capabilities, with apparently predictable consequences. Everybody knew (or should have known) that each new release of the PROJ and GDAL CSV metadata files could update transformation coefficients enough to shift outcomes a little. Everyone further chose to ignore the timestamping of coordinates, or at least of datasets; we could guess (as above) that US Census tract boundaries for 1980 must use the NAD27 datum framework - suprisingly many used NAD83 anyway (both for Boston and the North Carolina SIDS data set).
+
+Use of KML files to provide zoom and pan for these boundaries, and now **leaflet** and **mapview** exposes approximations mercilessly. Use of coefficients of transformation of an unknown degree of approximation, and authority "googled it" was reaching its limits, or likely had exceeded them.
+
+**sp** classes used a PROJ string to define the CRS (in an S4 `"CRS"` object):
+
+```{r}
+getClass("CRS")
+```
+
+while **sf** uses an S3 `"crs"` object with an integer EPSG code and a PROJ string; if instantiated from the EPSG code, both are provided, here for now retaining the fragile `+towgs84=` key because the central OGRSpatialReference function `exportToProj4()` is not (yet) being called (it is called when reading from file):
+
+```{r}
+library(sf)
+st_crs(4326)
+```
+
+# Modernising PROJ and issues
+
+
+### PROJ
+
+Because so much open source (and other) software uses the PROJ library and framework, many are affected when PROJ upgrades. Until very recently, PROJ has been seen as very reliable, and the changes taking place now are intended to confirm and reinforce this reliability. Before PROJ 5 (PROJ 6 is out now, PROJ 7 is coming early in 2020), the `+datum=` tag was used, perhaps with `+towgs84=` with three or seven coefficients, and possibly `+nadgrids=` where datum transformation grids were available. However, transformations from one projection to another first inversed to longitude-latitude in WGS84, then projected on to the target projection.
+
+
+> Fast-forward 35 years and PROJ.4 is everywhere: It provides coordinate handling for almost every geospatial program, open or closed source. Today, we see a drastical  increase  in  the  need  for  high  accuracy  GNSS  coordinate  handling, especially in the agricultural and construction engineering sectors. This need for geodetic-accuracy transformations  is  not  satisfied  by "classic  PROJ.4". But with  the  ubiquity  of  PROJ.4,  we  can provide these transformations "everywhere", just by implementing them as part of PROJ.4 [@evers+knudsen17].
+
+
+### Escaping the WGS84 hub/pivot: PROJ and OGC WKT2
+
+
+Following the introduction of geodetic modules and pipelines in PROJ 5 [@knudsen+evers17; @evers+knudsen17], PROJ 6 moves further. Changes in the legacy PROJ representation and WGS84 transformation hub have been coordinated through the [GDAL barn raising](https://gdalbarn.com/) initiative. Crucially WGS84 often ceases to be the pivot for moving between datums. A new OGC WKT is coming, and an SQLite EPSG file database has replaced CSV files. SRS will begin to support 3D by default, adding time too as SRS change. See also [PROJ migration notes](https://proj.org/development/migration.html).
+
+There are very useful postings on the PROJ mailing list from Martin Desruisseaux, first [proposing clarifications](https://lists.osgeo.org/pipermail/proj/2019-July/008748.html) and a [follow-up](https://lists.osgeo.org/pipermail/proj/2019-August/008750.html) including a summary:
+
+> * "Early binding" ≈ hub transformation technique.
+
+> * "Late binding" ≈ hub transformation technique NOT used, replaced by
+a more complex technique consisting in searching parameters in the
+EPSG database after the transformation context (source, target,
+epoch, area of interest) is known.
+
+> * The problem of hub transformation technique is independent of WGS84.
+It is caused by the fact that transformations to/from the hub are
+approximate. Any other hub we could invent in replacement of WGS84
+will have the same problem, unless we can invent a hub for which
+transformations are exact (I think that if such hub existed, we
+would have already heard about it).
+
+> The solution proposed by ISO 19111 (in my understanding) is:
+
+> * Forget about hub (WGS84 or other), unless the simplicity of
+early-binding is considered more important than accuracy.
+
+> * Associating a CRS to a coordinate set (geometry or raster) is no
+longer sufficient. A {CRS, epoch} tuple must be associated. ISO
+19111 calls this tuple "Coordinate metadata". From a programmatic
+API point of view, this means that getCoordinateReferenceSystem()
+method in Geometry objects (for instance) needs to be replaced by a
+getCoordinateMetadata() method.
+
+
+
+### Upstream software dependencies of the R-spatial ecosystem
+
+When changes occur in upstream external software, R packages using these libraries often need to adapt, but package maintainers try very hard to shield users from any consequences, so that legacy workflows continue to provide the same or at least similar results from the same data. 
+
+The code shown in [@asdar1; @asdar2] is almost all run nightly on a platform with updated R packages and external software. 
+
+This does not necessarily trap all differences (figures are not compared), but is helpful in detecting impacts of changes in packages or external software. 
+
+It is also very helpful that CRAN servers using the released and development versions of R, and with different levels of external software also run nightly checks. 
+
+Again, sometimes changes are only noticed by users, but quite often checks run by maintainers and by CRAN alert us to impending challenges. 
+
+Tracking the development mailing lists of the external software communities, all open source, can also show how thinking is evolving, although sometimes code tidying in external software can have unexpected consequences, breaking not **sf** or **sp** with **rgdal** or **rgeos**, but a package further downstream. 
+
+[@bivand14] discusses open source geospatial software stacks more generally, but here we will consider ongoing changes in PROJ.
+
+[@knudsen+evers17; @evers+knudsen17] not only point out how the world has changed since a World Geodetic System of 1984 (WGS84) was adopted as a hub for coordinate transformation in PROJ, but also introduced transformation pipelines. 
+
+In using a transformation hub, PROJ had worked adequately when the errors introduced by transforming first to WGS84 and then from WGS84 to the target coordinate reference system, but with years passing from 1984, the world has undergone sufficient tectonic shifts for errors to increase. 
+
+In addition, the need for precision has risen in agriculture and engineering. 
+So PROJ, as it was, risked ceasing to be fit for purpose as a fundamental component of the geospatial open source software stack.
+
+Following major changes in successive iterations of the international standards for coordinate reference systems [@iso19111], PROJ is changing from preferring "late-binding" transformations, pivoting through a known transformation hub in going from input to target coordinate reference systems, to "early-binding" transformations. 
+
+This means that the user may be offered alternative paths from input to target coordinate reference systems, some of which may go directly, and more will use higher precision transformation grids, enlarging the existing practice of using North American Datum (NAD) grids. 
+
+In other cases, three or seven coefficient transformations may be offered, but the default fallback, where little is known about the input or target specification, may be less satisfactory than PROJ has previously offered.
+
+PROJ will also become more tightly linked to authorities responsible for the specification components. While the original well-known text (WKT1) descriptions also contained authorities, WKT2-2018 is substantially more stringent. PROJ continues to use the European Petroleum Survey Group (EPSG) database, the local copy PROJ uses is now an SQLite database, with a large number of tables:
+
+```{r, echo = TRUE, mysize=TRUE, size='\\tiny'} 
+library(RSQLite)
+db <- dbConnect(SQLite(), dbname="/usr/local/share/proj/proj.db")
+cat(strwrap(paste(dbListTables(db), collapse=", ")), sep="\n")
+dbDisconnect(db)
+```
+
+### Grid CDN mechanism
+
+Current discussions now relate to mechanisms for caching downloaded grids, and advertising their availability to all programs using PROJ, for example GRASS GIS or QGIS. 
+
+Up to now, PROJ metadata files have usually been stored in a directory with only read access for users. 
+
+New facilities have been added to add to the search path for PROJ metadata files, but downloading often bulky grid files on-the-fly is not seen as a sensible use of resources.
+
+### Transformation pipelines
+
+In addition, the current iteration of the standard makes it more important to declare the epoch of interest of coordinates (when the position was recorded and how) and the region of interest. 
+
+A transformation pathway may have an undefined epoch and a global span, but cannot achieve optimal precision everywhere. 
+
+By bounding the region of interest say within a tectonic plate, and the epoch to a given five-year period, very high precision transformations may be possible. 
+
+These choices have not so far been required explicitly, but for example matching against the `"area"` table in the database may reduce the number of transformation pathways offered dramatically.
+
+### CRS status before GDAL3 and PROJ6
+
+The initial use of coordinate reference systems for objects defined ib **sp** was based on the PROJ.4 string representation, which built on a simplified key=value form. 
+
+Keys began with plus (`+`), and the value format depended on the key. 
+
+If essential keys were missing, some might be added by default from a file that has now been eliminated as misleading; if `+ellps=` was missing and not added internally from other keys, `+ellps=WGS84` would be added silently.
+
+
+Accurate coordinate transformation has always been needed for the integration of data from different sources, but has become much more pressing as web mapping has become available in R, through the **leaflet** package [@leaflet-package], on which **mapview** and the `"view"` mode of **tmap**. 
+
+As web mapping provides zooming and panning, possible infelicities that were too small to detect as mismatches in transformation jump into prominence. 
+
+The web mapping workflow transforms input objects to EPSG:4326 (geographical CRS WGS 84, World area of relevance, WGS84 datum) as expected by **leaflet**, then on to EPSG:3857 (WGS 84 / Pseudo-Mercator) for display on web map backgrounds (this is carried out internally in **leaflet**. 
+
+
+
+We'll be using the Soho cholera data set; I converted the shapefiles from https://asdar-book.org/bundles2ed/die_bundle.zip to GPKG to be more modern (using `ogr2ogr` in GDAL 3 built against PROJ 6. **sf** is installed using the `proj.h` interface in PROJ 6:
+
+```{r, echo=TRUE}
+buildings <- sf::st_read("snow/buildings.gpkg", quiet=TRUE)
+st_crs(buildings)
+```
+
+To make an interactive display in `mapview()`, conversion/transformation to "Web Mercator" is needed - this uses a WGS84 datum. But PROJ 6 has dropped the `+datum=` tag, so the display is not correctly registered.
+
+```{r, echo=TRUE}
+library(mapview)
+mapview(buildings)
+```
+
+The CRS/SRS values in the GPKG file (it is a multi-table SQLite database) include the datum definition:
+
+```{r, echo=TRUE}
+library(RSQLite)
+db = dbConnect(SQLite(), dbname="snow/buildings.gpkg")
+dbReadTable(db, "gpkg_spatial_ref_sys")$definition[4]
+dbDisconnect(db)
+```
+
+Maybe using **rgdal** which is built using PROJ 6 but the legacy `proj_api.h` interface, and the shapefile as shipped with ASDAR reproduction materials will help?
+
+```{r, echo=TRUE}
+buildings1 <- rgdal::readOGR("snow/buildings.shp", verbose=FALSE)
+proj4string(buildings1)
+```
+
+No, same problem:
+
+```{r, echo=TRUE}
+mapview(buildings1)
+```
+
+But the shapefile has the datum definition:
+
+```{r, echo=TRUE, warning=FALSE}
+readLines("snow/buildings.prj")
+```
+
+There are a number of components to the PROJ/GDAL changes taking place. 
+
+One concerns the use of transformation pipelines to represent coordinate operations. These pipelines (there may be many candidates) vary by area of interest, accuracy of transformation coordinates if used, and the availability of grids.
+
+A second component concerns the representation of CRS; if CRS are represented by PROJ strings, and go through the GDAL function OGRSpatialReference `exportToProj4()`, most `+datum=` tags will be stripped ([see function documentation](https://gdal.org/doxygen/classOGRSpatialReference.html#a271b3de4caf844135b0c61e634860f2b)).
+
+A third component adds area of interest and possibly epoch to the WKT2_2018 version of ISO 19111 as a forward-looking text representation of a CRS.
+
+
+
+
+# Proposed developments (using **sp** and **rgdal** as prototypes)
+
+The current proposals now exposed in my fork of **sp** on github (>= 1.3-3) and the development version of **rgdal** on R-Forge involve the following steps, over and above backward compatibility (no change in handling CRS for PROJ < 6 and GDAL < 3; try to handle wrong case of GDAL < 3 with PROJ 6):
+
+For PROJ >= 6 && GDAL >= 3: supplement the `"CRS"` PROJ string with a full WKT2_2018 representation. If the object is instantiated by reading a file through GDAL, then `exportToProj4()` will degrade most CRS when creating a PROJ string. The WKT string is stored as a `comment()` to the `"CRS"` object, which is permissable but not desirable in an S4 context, but is backwards compatible. We can see that the WKT string represents the CRS seen in the vector file:
+
+```{r}
+comment(slot(buildings1, "proj4string"))
+```
+
+Using the previous direct instantiation mechanism, we see that the PROJ string is degraded
+
+```{r}
+(o <- CRS("+init=epsg:27700"))
+```
+
+but that the WKT2 payload is safe, and is actually better specified than that from file:
+
+```{r}
+comment(o)
+```
+
+The new `rgdal::showSRID()` function replaces the legacy `rgdal::showWKT()`, and is used internally in `rgdal::checkCRSArgs_ng(), which gets an additional argument to pass through a CRS string in a different format:
+
+```{r}
+cat(showSRID("+init=epsg:27700", multiline="YES"), "\n")
+```
+
+
+```{r}
+showSRID("+init=epsg:27700", "PROJ")
+```
+
+While previously `rgdal::checkCRSArgs()` was called by `sp::CRS()` and checked or expanded the PROJ string, in the GDAL >= 3 and PROJ >= 6 setting, the new function will use `rgdal::showSRID()` to provide both a checked PROJ string and a WKT2 string, which are then used to populate the `"CRS"` object and its comment. 
+
+```{r}
+checkCRSArgs_ng
+```
+
+Because `sp::CRS()` is called whenever an object is created, for example when reading from a file, newly instantiated `"Spatial"` objects should receive updated `"CRS"` objects with WKT2 comments. 
+
+The `"Spatial"` objects that will not receive updated `"CRS"` objects are those that have been serialized, as `"RDA"` or `"RDS"` objects, for example in package `data` directories, or for example from (https://gadm.org).
+
+```{r, cache=TRUE}
+con <- url("https://biogeo.ucdavis.edu/data/gadm3.6/Rsp/gadm36_NOR_0_sp.rds")
+nor <- readRDS(con)
+close(con)
+proj4string(nor)
+comment(slot(nor, "proj4string"))
+```
+
+There is no automatic way to update these `"CRS"` objects, so user intervention will be needed to avoid possible degradation:
+
+```{r}
+(o <- CRS(proj4string(nor)))
+comment(o)
+```
+
+The new function `rgdal::list_coordOps()` can be used to explore what alternatives are returned on searching the `proj.db` database and the grids present on the running platform. If all we are using is the degraded PROJ string, we only find one ballpark alternative, leading to the mis-placement of buildings in Soho (**mapview** now converts all `"Spatial"` objects to their `sf` equivalents, so buildings1 is also mis-placed):
+
+```{r}
+(c0 <- list_coordOps(paste0(proj4string(buildings1), " +type=crs"), "EPSG:4326"))
+```
+
+If instead we use the WKT comment, we get 7 alternatives, with the best available having 2m accuracy. A 1m accuracy alternative could be available if a grid (URL given) is downloaded and installed (this will follow later).
+
+```{r}
+(c1 <- list_coordOps(comment(slot(buildings1, "proj4string")), "EPSG:4326"))
+```
+
+`rgdal::spTransform()` methods have been supplemented to use CRS comments if available, falling back on PROJ strings. The coordinate operation chosen (the best available on the running platform) is searched for and found once, and re-used for all the geometries in the object. The last coordinate operation used is also cached, but it would be up to the users to re-use this pipeline if desired (probably a class for pipeline objects is required):
+
+```{r}
+buildings1_ll <- spTransform(buildings1, CRS("+init=epsg:4326"))
+get(".last_coordOp", envir=rgdal:::.RGDAL_CACHE)
+```
+
+In these cases we have not so far been further confused by axis swapping - we do not yet know how this may affect workflows.
+
+Having transformed the building outlines using the CRS WKT comment, we have retrieved 2m accuracy:
+
+```{r}
+mapview(buildings1_ll)
+```
+
+Let's try the Broad Street pump itself: does the proposed solution deliver a work-around (and arguably a robust solution going forward)?
+
+```{r}
+bp <- readOGR("snow/b_pump.gpkg")
+comment(slot(bp, "proj4string"))
+```
+
+The untreated view (coercion to **sf** ignoring CRS comment then ballpark transformation to 4326 before internal conversion to pseudo-Mercator):
+
+```{r}
+mapview(bp)
+```
+
+If we transform using the CRS WKT comment, we retrieve the pre-PROJ6/GDAL3 position, but can sharpen this if we download and use a higher precision grid:
+
+```{r}
+mapview(spTransform(bp, CRS("+init=epsg:4326")))
+```
+
+A further problem is that packages like **raster** and **mapview** use verbatim PROJ strings to check CRS equivalence. This has not been resolved.
+
+

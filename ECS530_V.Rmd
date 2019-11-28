@@ -1,0 +1,300 @@
+---
+title: "ECS530: (V) R/GIS interfaces"
+author: "Roger Bivand"
+date: "Wednesday 4 December 2019, 09:15-11.00, aud. C"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+theme: united
+bibliography: ecs530.bib
+link-citations: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Copyright
+
+All the material presented here, to the extent it is original, is available under [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/). Parts build on joint tutorials with Edzer Pebesma.
+
+### Required current contributed CRAN packages:
+
+I am running R 3.6.1, with recent `update.packages()`.
+
+```{r, echo=TRUE}
+needed <- c("mapview", "rgrass7", "XML", "sf")
+```
+
+I also have GRASS 7.8.1 (https://grass.osgeo.org/download/software/), but this is not essential (learning GRASS in 30 minutes is not easy).
+
+### Script
+
+Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_IV.zip. Download to suitable location, unzip and use as basis.
+
+## Schedule
+
+- 2/12 (I) Spatial data representation, (II) Support+topology, input/output
+
+- 3/12 (III) Coordinate reference systems, (IV) Visualization
+
+- 4/12 **(V) R/GIS interfaces**, *project surgery*
+
+- 5/12 (VI) Spatial autocorrelation, (VII) Spatial regression
+
+- 6/12 (VIII) Interpolation, point processes, *project surgery*
+
+- 7/12 *Presentations*
+
+
+## Session V
+
+- 09:15-09:45 
+
+- 09:45-10:30 
+
+- 10:30-11:00 
+
+
+# GIS interfaces
+
+Because GIS can be used as databases, and their tools can be better suited to some analyses and operations, it may be sensible to use one in addition to data analysis software. There is an extra effort required when using linked software systems, because they may not integrate easily. Since R is open source, and R spatial packages use open source components, staying with open source GIS means that many of the underlying software components are shared. This certainly applies to R and GRASS, and through GRASS, also to R and QGIS --- QGIS is more file-based than GRASS, which has an underlying data storage specification.
+
+GIS interfaces can be as simple as just reading and writing files using loose coupling, once the file formats have been worked out, that is. The GRASS 7 interface **rgrass7** on CRAN is the current, stable interface. In addition to the GRASS interface, which is actively maintained, there are several others: **link2GI** packages interfaces to several GI systems; **RQGIS** is for QGIS but links through to GRASS and SAGA [@muenchowetal17] using **reticulate**; **RSAGA** links to, scripting and running SAGA from R; **rpostgis** is for PostGIS [@bucklin+basille18]. The **arcgisbinding** package is published and distributed by [ESRI using Github](https://github.com/R-ArcGIS/r-bridge), and provides some file exchange facilities for vector and attribute data (newer versions may have raster too). 
+
+### Layering of shells
+
+
+The interface between R and GRASS uses the fact that GRASS modules can be run as command line programs at the shell prompt. The shell has certain environment variables for GRASS set, for example saying where the data is stored, but is otherwise a regular shell, from which R can be started. This instance of R inherits the environment variables set by GRASS
+
+![](gc009_04a.png)
+
+
+
+Finally, although for research purposes it may be prefered to have data analysis software, such as R, facing the user, it is possible to try to embed this component in the workflow, so that the end user does not need so much training --- but then an ``expert'' has to codify the steps needed in advance.
+
+![](links0.png)
+
+### Two sides of the R/GRASS interface
+
+The R/GRASS interface came into being in 1998/1999, and is covered in Bivand [-@bivand:00] and [a conference paper by Bivand and Neteler](http://www.geocomputation.org/2000/GC009/Gc009.htm); and Bivand [-@bivand:14]. R was started in a GRASS LOCATION, and spatial data was exchanged between GRASS and R, running as it were in tandem; the workflows were not integrated. **spgrass6** and its use discussed in Neteler and Mitasova [-@neteler+mitasova:08] continued this approach, but about that time steps were taken to permit scripting GRASS from R in existing LOCATIONs, like **RSAGA**. Shortly afterwards, **spgrass6** and now **rgrass7** introduced the possibility of creating a temporary GRASS LOCATION permitting GIS operations on data from the R side.
+
+### GRASS sessions
+
+The package may be used in two ways, either in an R session started from within a GRASS session from the command line, or with the `initGRASS()` function. The function may be used with an existing GRASS location and mapset, or with a one-time throw-away location, and takes the GRASS installation directory as its first argument. It then starts a GRASS session within the R session, and is convenient for scripting GRASS in R, rather than Python, which is be the GRASS scripting language in GRASS 7. Other arguments to `initGRASS()` may be used to set up the default region using standard tools like `Sys.setenv`; resolution and projection may be set or reset subsequently.
+
+### Running GRASS from R
+
+Each GRASS command takes an `--interface-description` flag, which when run returns an XML description of its flags and parameters. These descriptions are used by the GRASS GUI to populate its menus, and are also used in **rgrass7** to check that GRASS commands are used correctly. This also means that the `parseGRASS` function can set up an object in a searchable list on the R side of the interface, to avoid re-parsing interface descriptions that have already been encountered in a session. 
+
+The middle function is `doGRASS`, which takes the flags and parameters chosen, checks their validity --- especially type  (real, integer, string), and constructs a command string. Note that multiple parameter values should be a vector of values of the correct type. Finally, `execGRASS` uses the `system` or `system2` function to execute the GRASS command with the chosen flag and parameter values; the `intern=` argument asks that what GRASS returns be placed in an R object.
+
+In general use, `execGRASS` calls `doGRASS`, which in turn calls `parseGRASS`. Use of `execGRASS` has been simplified to permit parameters to be passed through the R ellipsis ($\ldots$) argument structure. Consequently, the scripter can readily compare [the help page of any GRASS command](https://grass.osgeo.org/grass76/manuals/index.html) with the version of the value returned by `parseGRASS` showing the parameters and flags expected. GRASS add-ons are also accommodated in the same `parseGRASS` procedure of parsing and caching. We will not need more complex setups here, but it is easy to see that for example `execGRASS` may be run in an R loop with varying parameter values.
+
+### Initialize temporary GRASS session
+
+Here we need three objects to be created, and also set `override=` to `TRUE`, as this document may be run many times. `initGRASS()` looks for an environment variable that GRASS sessions set (`GISRC`) pointing to a file of GRASS environment variables. Real GRASS sessions remove it on exit, but this interface does not (yet) provide for its removal, hence the need here to override.
+
+
+```{r, echo=TRUE}
+library(sf)
+```
+
+```{r, echo=TRUE}
+olinda_sirgas2000 <- st_read("olinda_sirgas2000.gpkg", quiet=TRUE)
+bounds <- st_sf(st_union(olinda_sirgas2000))
+SG <- maptools::Sobj_SpatialGrid(as(bounds, "Spatial"), n=1000000)$SG
+```
+
+From **rgrass7** 0.2-1, the user needs to flag whether **sf**/**stars** or **sp**/**rgdal** object representations are being used, with `use_sp()` or `use_sf()`. This is only needed when objects rather than commands move across the interface; because no **stars** support is yet present, we need to use **sp** and **rgdal** support to set the location resolution.
+
+```{r, echo=TRUE}
+library(rgrass7)
+packageVersion("rgrass7")
+use_sp()
+myGRASS <- "/home/rsb/topics/grass/g781/grass78"
+myPROJSHARE <- "/usr/local/share/proj"
+if (Sys.getenv("GRASS_PROJSHARE") == "") Sys.setenv(GRASS_PROJSHARE=myPROJSHARE)
+loc <- initGRASS(myGRASS, tempdir(), SG=SG, override=TRUE)
+```
+
+### Setting the projection correctly
+
+As yet `initGRASS` does not set the projection from the input `"SpatialGrid"` object, so we have to do it ourselves, showing how to pass R objects to GRASS parameters:
+
+
+```{r, echo=TRUE}
+execGRASS("g.mapset", mapset="PERMANENT", flag="quiet")
+execGRASS("g.proj", flag="c", proj4=st_crs(bounds)$proj4string)
+execGRASS("g.mapset", mapset=loc$MAPSET, flag="quiet")
+execGRASS("g.region", flag="d")
+```
+
+We read the elevation data downloaded before into the GRASS location directly:
+
+```{r, echo=TRUE}
+execGRASS("r.in.gdal", flag=c("overwrite", "quiet"), input="elevation.tif", output="dem")
+execGRASS("g.region", raster="dem")
+```
+
+Next, we run `r.watershed` on this high resolution digital elevation model, outputting raster stream lines, then thinned with `r.thin`:
+
+```{r, echo=TRUE}
+execGRASS("r.watershed", flag=c("overwrite", "quiet"), elevation="dem", stream="stream", threshold=2500L, convergence=5L, memory=300L)
+execGRASS("r.thin", flag=c("overwrite", "quiet"), input="stream", output="stream1", iterations=200L)
+```
+
+To mask the output object we switch to the **sf** vector representation, copy `bounds` to GRASS, and set a raster mask using the bounds of the union of tracts. Then we convert the thinned stream lines within the mask to vector representation, and copy this object from GRASS to the R workspace. In both cases, we use GPKG representation for intermediate files.
+
+```{r, echo=TRUE}
+use_sf()
+writeVECT(bounds, "bounds", v.in.ogr_flags=c("overwrite", "quiet"))
+execGRASS("r.mask", vector="bounds", flag=c("overwrite", "quiet"))
+execGRASS("r.to.vect", flag=c("overwrite", "quiet"), input="stream1", output="stream", type="line")
+imputed_streams <- readVECT("stream", ignore.stderr=TRUE)
+```
+
+
+```{r, echo=TRUE, warning=FALSE}
+library(mapview)
+mapview(imputed_streams)
+```
+
+We can also calculate geomorphometric values, including the simple slope and aspect values for the masked raster using `r.slope.aspect`. If we then move the Olinda setor boundaries to GRASS, we can use `v.rast.stats` to summarize the raster values falling within each setor, here for the geomorphometric measures.
+
+```{r, echo=TRUE}
+execGRASS("r.slope.aspect", elevation="dem", slope="slope", aspect="aspect", flag=c("quiet", "overwrite"))
+writeVECT(olinda_sirgas2000[, "SETOR_"], "olinda", ignore.stderr=TRUE, v.in.ogr_flags=c("overwrite", "quiet"))
+execGRASS("v.rast.stats", map="olinda", raster=c("slope", "aspect"), method=c("first_quartile", "median", "third_quartile"), column_prefix=c("slope", "aspect"), flag=c("c", "quiet"))
+```
+
+We can do the same for the Landsat 7 NDVI values:
+
+```{r, echo=TRUE}
+execGRASS("r.in.gdal", flag=c("overwrite", "quiet"), input="L7_ndvi.tif", output="ndvi")
+execGRASS("g.region", raster="ndvi")
+execGRASS("v.rast.stats", map="olinda", raster="ndvi", method=c("first_quartile", "median", "third_quartile"), column_prefix="ndvi", flag=c("c", "quiet"))
+```
+
+
+```{r, echo=TRUE}
+olinda_gmm_ndvi <- readVECT("olinda", ignore.stderr=TRUE)
+head(olinda_gmm_ndvi)
+```
+
+### Broad Street Cholera Data
+
+
+```{r, echo=TRUE}
+library(sf)
+bbo <- st_read("snow/bbo.gpkg")
+```
+
+```{r, echo=TRUE}
+library(rgrass7)
+myPROJSHARE <- "/usr/local/share/proj"
+if (Sys.getenv("GRASS_PROJSHARE") == "") Sys.setenv(GRASS_PROJSHARE=myPROJSHARE)
+myGRASS <- "/home/rsb/topics/grass/g781/grass78"
+td <- tempdir()
+SG <- maptools::Sobj_SpatialGrid(as(bbo, "Spatial"))$SG
+use_sp()
+soho <- initGRASS(gisBase=myGRASS, home=td, SG=SG, override=TRUE)
+soho
+```
+
+```{r, echo=TRUE}
+MAPSET <- execGRASS("g.mapset", flags="p", intern=TRUE)
+execGRASS("g.mapset", mapset="PERMANENT", flags="quiet")
+execGRASS("g.proj", flags=c("p", "quiet"))
+execGRASS("g.proj", proj4=st_crs(bbo)$proj4string, flags=c("c", "quiet"))
+```
+
+```{r, echo=TRUE}
+execGRASS("g.mapset", mapset=MAPSET, flags="quiet")
+execGRASS("g.region", flags="p", intern=TRUE)[3:11]
+execGRASS("g.region", flags="a", res="1")
+execGRASS("g.region", flags="p", intern=TRUE)[3:11]
+```
+
+```{r, echo=TRUE, warning=FALSE}
+buildings <- st_read("snow/buildings.gpkg", quiet=TRUE)
+deaths <- st_read("snow/deaths.gpkg", quiet=TRUE)
+sum(deaths$Num_Css)
+b_pump <- st_read("snow/b_pump.gpkg", quiet=TRUE)
+nb_pump <- st_read("snow/nb_pump.gpkg", quiet=TRUE)
+```
+
+```{r, echo=TRUE, warning=FALSE}
+use_sf()
+fl <- c("overwrite", "quiet")
+writeVECT(bbo, vname="bbo", v.in.ogr_flags=c("o", fl), ignore.stderr=TRUE)
+writeVECT(buildings[,1], vname="buildings", v.in.ogr_flags=c("o", fl), ignore.stderr=TRUE)
+writeVECT(b_pump, vname="b_pump", v.in.ogr_flags=c("o", fl), ignore.stderr=TRUE)
+writeVECT(nb_pump, vname="nb_pump", v.in.ogr_flags=c("o", fl), ignore.stderr=TRUE)
+writeVECT(deaths, vname="deaths", v.in.ogr_flags=c("o", fl), ignore.stderr=TRUE)
+execGRASS("g.list", type="vector", intern=TRUE)
+```
+
+### GIS workflow
+
+The buildings vector layer should be converted to its inverse (not buildings), and these roads should then be buffered to include the front doors (here 4m). These operations can be done in the raster or vector representation, but the outcome here will be a raster object from which to find the cost in 1 metre resolution of moving from each front door to each pump. We then need to extract the distance to the Broad Street pump, and to the nearest other pump, for each front door. We could also use vector street centre lines to build a network, and used graph-based methods to find the shortest paths from each front door to the pumps.
+
+
+### Create roads and convert to raster
+
+First, we cut the buildings out of the extent polygon to leave the roads. Having set the region resolution to 1x1m squares we can convert the vector roads to raster, and can tabulate raster cell values, where asterisks are missing data cells:
+
+```{r , echo = TRUE, mysize=TRUE, size='\\tiny'}
+execGRASS("v.overlay", ainput="buildings", binput="bbo", operator="xor", output="roads", flags=fl, ignore.stderr = TRUE)
+execGRASS("v.to.rast", input="roads", output="rroads", use="val", value=1, flags=fl)
+execGRASS("r.stats", input="rroads", flags=c("c", "quiet"))
+```
+
+### Buffer and reclass
+
+We also need to buffer out the roads by an amount sufficient to include the the front door points within the roads --- 4m was found by trial and error and may be too much, giving shorter distances than a thinner buffer would yield. Reclassification of the raster to give only unit cost is also needed:
+
+```{r , echo = TRUE, mysize=TRUE, size='\\tiny'}
+execGRASS("r.buffer", input="rroads", output="rroads4", distances=4, flags=fl)
+execGRASS("r.stats", input="rroads4", flags=c("c", "quiet"))
+tf <- tempfile()
+cat("1 2 = 1\n", file=tf)
+execGRASS("r.reclass", input="rroads4", output="rroads4a", rules=tf, flags=fl)
+execGRASS("r.stats", input="rroads4a", flags=c("c", "quiet"))
+```
+
+### Generate distance maps
+
+The `r.cost` command returns a raster with cells set as the cost of moving from the vector start point or points to each cell; we do this twice, once for the Broad Street pump, and then for the other pumps:
+
+
+```{r , echo = TRUE, mysize=TRUE, size='\\tiny'}
+execGRASS("r.cost", input="rroads4a", output="dist_broad", start_points="b_pump", flags=fl)
+execGRASS("r.cost", input="rroads4a", output="dist_not_broad", start_points="nb_pump", flags=fl)
+```
+
+### Pump to front door distances
+
+Finally, we examine the values of these two distance maps at the front door points, and add these fields (columns) to the vector mortality map:
+
+```{r , echo = TRUE, mysize=TRUE, size='\\tiny'}
+execGRASS("v.db.addcolumn", map="deaths", columns="broad double precision", flags="quiet")
+execGRASS("v.what.rast", map="deaths", raster="dist_broad", column="broad", flags="quiet")
+execGRASS("v.db.addcolumn", map="deaths", columns="not_broad double precision", flags="quiet")
+execGRASS("v.what.rast", map="deaths", raster="dist_not_broad", column="not_broad", flags="quiet")
+```
+
+### Mortality counts by pump nearness
+
+Moving the data back to R from GRASS permits operations on the distance values. We set the logical variable `b_nearer` to TRUE if the distance to the Broad Street pump is less than the distance to the nearest other pump:
+
+```{r , echo = TRUE, mysize=TRUE, size='\\tiny'}
+deaths1 <- readVECT("deaths", ignore.stderr=TRUE)
+deaths1$b_nearer <- deaths1$broad < deaths1$not_broad
+by(deaths1$Num_Css, deaths1$b_nearer, sum)
+```
