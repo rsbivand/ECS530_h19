@@ -1,7 +1,7 @@
 ---
 title: "ECS 530 Spatial data analysis"
 author: "Roger Bivand"
-date: "2-8 December 2019, aud. C"
+date: "2-7 December 2019, aud. C"
 output: 
   html_document:
 theme: united
@@ -19,13 +19,15 @@ theme: united
 
 ### Tuesday PM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_IV.html)
 
-### Wednesday AM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_V.html)
+### Wednesday AM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_VI.html)
 
-### Thursday AM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_VI.html)
+### Wednesday GIS [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_V.html)
 
-### Thursday PM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_VII.html)
+### Thursday AM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_VII.html)
 
-### Friday AM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_VIII.html)
+### Thursday PM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_VIII.html)
+
+### Friday AM [workshop document](https://rsbivand.github.io/ECS530_h19/ECS530_IX.html)
 
 
 
