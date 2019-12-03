@@ -11,3 +11,4 @@ Streaming link: https://stream.nhh.no/no/broadcast/254, Monday-Friday 2-6 Decemb
 Schedule revised 2019-12-02.
 
 
+
