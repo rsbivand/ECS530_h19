@@ -1,0 +1,254 @@
+---
+title: "ECS530: (VII) Spatial regression"
+author: "Roger Bivand"
+date: "Thursday 5 December 2019, 09:15-11.00, aud. C"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+theme: united
+bibliography: ecs530.bib
+link-citations: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Copyright
+
+All the material presented here, to the extent it is original, is available under [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/). Parts build on joint tutorials with Edzer Pebesma.
+
+### Required current contributed CRAN packages:
+
+I am running R 3.6.1, with recent `update.packages()`.
+
+```{r, echo=TRUE}
+needed <- c("hglm", "hglm.data", "tmap", "spatialreg", "spdep", "spData", "sp", "sf")
+```
+
+### Script
+
+Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_VII.zip. Download to suitable location, unzip and use as basis.
+
+## Schedule
+
+- 2/12 (I) Spatial data representation, (II) Support+topology, input/output
+
+- 3/12 (III) Coordinate reference systems, (IV) Visualization
+
+- 4/12 (VI) Spatial autocorrelation, *project surgery*
+
+- 5/12 **(VII) Spatial regression**, (VIII) Spatial multilevel regression
+
+- 6/12 (IX) Interpolation, point processes, *project surgery*
+
+- 7/12 *Presentations*
+
+
+### Session VII
+
+- 09:15-09:45 Spatial regression background
+
+- 09:45-10:30 Simultaneous autoregression
+
+- 10:30-11:00 Conditional autoregression & Markov Random Fields
+
+```{r, message=FALSE, warning=FALSE}
+library(sf)
+nc <- st_read(system.file("shapes/sids.shp", package="spData")[1], quiet=TRUE)
+st_crs(nc) <- "+proj=longlat +datum=NAD27"
+row.names(nc) <- as.character(nc$FIPSNO)
+nc$ft.SID74 <- sqrt(1000)*(sqrt(nc$SID74/nc$BIR74) + sqrt((nc$SID74+1)/nc$BIR74))
+nc$ft.NWBIR74 <- sqrt(1000)*(sqrt(nc$NWBIR74/nc$BIR74) + sqrt((nc$NWBIR74+1)/nc$BIR74))
+library(spdep)
+gal_file <- system.file("weights/ncCR85.gal", package="spData")[1]
+ncCR85 <- read.gal(gal_file, region.id=nc$FIPSNO)
+nc_lw <- nb2listw(ncCR85, style="B")
+nc_W <- as(nc_lw, "CsparseMatrix")
+```
+
+
+
+## Simultaneous autoregressive approaches
+
+The approach taken by social scientists including economists, and some others has been to approach this through simultaneous autoregressive approaches, where the response is modelled using fixed covariates, and the residual process is modelled by optimising a log likelihood function. The **spatialreg** package provides `spautolm()` and `errorsarlm()`:
+
+```{r, echo=TRUE, results='hide', message=FALSE, warning=FALSE}
+library(spatialreg)
+m1 <- spautolm(ft.SID74 ~ ft.NWBIR74, weights=BIR74, data=nc, listw=nc_lw, family="SAR")
+```
+
+When we include the covariate, the spatial error coefficient contributes little:
+
+```{r, echo=TRUE}
+summary(m1)
+```
+
+It is unusual to present maps of the spatially structured random effect in cases where the simultaneous autoregressive approach is used, but it is fully possible using components of the returned model object (the vector is doubled for comparison with the CAR version):
+
+```{r, echo=TRUE}
+nc$SAR_ssre <- 2*as.vector((m1$lambda * nc_W) %*% m1$Y - (m1$lambda * nc_W) %*% (m1$X %*% m1$fit$coefficients))
+library(tmap)
+tm_shape(nc) + tm_fill(c("ft.SID74", "SAR_ssre"), midpoint=c(NA, 0))
+```
+
+
+The other maximum likelihood implementation gives the same results, but provides a Hausman test for shifts in the covariate coefficients between the aspatial and spatial estimates [@pace+lesage:08]; there is none:
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+m1a <- errorsarlm(ft.SID74 ~ ft.NWBIR74, weights=BIR74, data=nc, listw=nc_lw)
+summary(m1a, Hausman=TRUE)
+```
+
+It also lets us add `Durbin=` terms, that is spatially lagged covariates:
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+m1b <- errorsarlm(ft.SID74 ~ ft.NWBIR74, weights=BIR74, data=nc, listw=nc_lw, Durbin=TRUE)
+summary(m1b, Hausman=TRUE)
+```
+
+and to present the by-covariate effects taking into account the unlagged (direct) and lagged (indirect) covariates and the sum of the coefficients (total):
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+summary(impacts(m1b))
+```
+
+
+However, our model may suffer from not using a mixed model approach to a count response; the simultaneous autoregressive models are mostly used with Gaussian responses. One possibility is to employ the hierarchical generalized linear model approach from the **hglm** package. First we'll fit an unstructured IID (independent and identically distributed) random effect [@alam-ronnegard-shen:2015]:
+
+```{r, echo=TRUE, results='hide', message=FALSE, warning=FALSE}
+library(hglm)
+E <- nc$BIR74 * sum(nc$SID74)/sum(nc$BIR74)
+HGLM_iid <- hglm(fixed=SID74 ~ ft.NWBIR74, random= ~ 1|CRESS_ID, offset=log(E), weights=BIR74,
+                 data=nc, family=poisson(link=log))
+```
+
+The random effects also have their own standard errors, so we can order and display them with error bars in a forest or caterpillar plot:
+
+```{r, echo=TRUE}
+ranef_iid <- unname(summary(HGLM_iid, print.ranef=TRUE)$RandCoefMat)
+metafor::forest(ranef_iid[,1], ranef_iid[,2], subset=order(ranef_iid[,1], decreasing=TRUE), 
+        slab=NA, annotate=FALSE, lty=c("solid","blank"), pch=19, psize=2, cex.lab=1, cex.axis=1)
+```
+
+We can also fit a weighted Poisson simultaneous autoregressive model, and examine the random effects:
+
+```{r, echo=TRUE, results='hide', message=FALSE, cache=TRUE, warning=FALSE}
+HGLM_sar <- hglm(fixed=SID74 ~ ft.NWBIR74, random= ~ 1|CRESS_ID, offset=log(E), weights=BIR74, 
+                 data=nc, family=poisson(link=log), rand.family=SAR(D=nc_W))
+ranef_sar <- unname(summary(HGLM_sar, print.ranef=TRUE)$RandCoefMat)
+metafor::forest(ranef_sar[,1], ranef_sar[,2], subset=order(ranef_sar[,1], decreasing=TRUE), 
+        slab=NA, annotate=FALSE, lty=c("solid","blank"), pch=19, psize=2, cex.lab=1, cex.axis=1)
+```
+
+There is not much difference between the IID and the SAR spatially structured random effects:
+
+```{r, echo=TRUE}
+nc$HGLM_re <- ranef_iid[,1]
+nc$HGLM_ss_SAR <- ranef_sar[,1]
+tm_shape(nc) + tm_fill(c("HGLM_re", "HGLM_ss_SAR"), midpoint=c(0), title="Poisson HGLM RE") +
+  tm_facets(free.scales=FALSE) + tm_layout(panel.labels=c("IID", "SAR SSRE"))
+```
+
+##  Conditional and MRF autoregressive approaches
+
+Most epidemiological applications use conditional autoregressive approaches, where some (like `spautolm()` and the `hglm()` implementations) fit a spatial coefficient, but many fit an intrinsic CAR. First the `spautolm()` and the `hglm()` implementations:
+
+```{r, echo=TRUE}
+m1c <- spautolm(ft.SID74 ~ ft.NWBIR74, weights=BIR74, data=nc, listw=nc_lw, family="CAR")
+summary(m1c)
+```
+
+Again, we can calculate something that represents the spatial patterning of the spatial process (termed "signal" in the documentation of `spatialreg::predict.sarlm`), but it is not scaled in the same way as the `hgml()` random effects (and importantly we do not have standard errors):
+
+```{r, echo=TRUE}
+nc$CAR_ssre <- as.vector((m1c$lambda * nc_W) %*% m1c$Y - 
+                           (m1c$lambda * nc_W) %*% (m1c$X %*% m1c$fit$coefficients))
+tm_shape(nc) + tm_fill(c("SAR_ssre", "CAR_ssre"), midpoint=c(0), title="Gauss ML RE") +
+  tm_facets(free.scales=FALSE) + tm_layout(panel.labels=c("SAR SSRE", "CAR SSRE"))
+```
+
+Fitting the HGLM CAR model is just like the SAR model, and the forest plot of the spatially structured random effect is similar. Recall that `spautolm()` is fitting a Gaussian model, but `hglm()` is fitting a Poisson model, arguably better suited to count data. This means that the scalings of the random effects will vary in scale:
+
+```{r, echo=TRUE, results='hide', message=FALSE, cache=TRUE, warning=FALSE}
+HGLM_car <- hglm(fixed=SID74 ~ ft.NWBIR74, random= ~ 1|CRESS_ID, offset=log(E), weights=BIR74, 
+                 data=nc, family=poisson(link=log), rand.family=CAR(D=nc_W))
+ranef_car <- unname(summary(HGLM_car, print.ranef=TRUE)$RandCoefMat)
+metafor::forest(ranef_car[,1], ranef_car[,2], subset=order(ranef_car[,1], decreasing=TRUE), 
+        slab=NA, annotate=FALSE, lty=c("solid","blank"), pch=19, psize=2, cex.lab=1, cex.axis=1)
+```
+
+```{r, echo=TRUE}
+nc$HGLM_ss_CAR <- ranef_car[,1]
+tm_shape(nc) + tm_fill(c("HGLM_ss_CAR", "HGLM_ss_SAR"), midpoint=c(0), title="Poisson HGLM RE") +
+  tm_facets(free.scales=FALSE) + tm_layout(panel.labels=c("CAR SSRE", "SAR SSRE"))
+```
+
+To use a generalized additive mixed model (`mgcv::gam()` with an `"mrf"` random effect), and some other mixed models, the areal entities need to be grouped (done in the first exercise), and we can try a flexible fit on the covariate:
+
+```{r, echo=TRUE, results='hide', message=FALSE, cache=TRUE, warning=FALSE}
+nc$LM <- as.numeric(interaction(nc$L_id, nc$M_id))
+aggLM <- aggregate(nc[,"LM"], list(nc$LM), head, n=1)
+aggnb <- poly2nb(aggLM)
+library(mgcv)
+names(aggnb) <- as.character(aggLM$Group.1)
+nc$LM <- as.factor(nc$LM)
+GAM_mrf <- gam(SID74 ~ s(ft.NWBIR74) + s(LM, bs="mrf", xt=list(nb=aggnb)), offset=log(E), weights=BIR74, data=nc, family=poisson(link=log))
+summary(GAM_mrf)
+```
+
+And plot the covariate smooth term:
+
+```{r, echo=TRUE}
+library(mgcv)
+plot(GAM_mrf)
+```
+
+The forest plot is obviously grouped too:
+
+```{r, echo=TRUE}
+GAM_mrf_re <- predict(GAM_mrf, type="terms", se=TRUE)
+metafor::forest(GAM_mrf_re$fit[,2], GAM_mrf_re$se.fit[,2], subset=order(GAM_mrf_re$fit[,1], decreasing=TRUE), 
+        slab=NA, annotate=FALSE, lty=c("solid","blank"), pch=19, psize=2, cex.lab=1, cex.axis=1)
+```
+
+as is the RE map:
+
+```{r, echo=TRUE}
+nc$GAM_mrf_re <- GAM_mrf_re$fit[,2]
+tm_shape(nc) + tm_fill(c("GAM_mrf_re"), midpoint=c(0), title="Poisson GAM MRF RE")
+```
+
+
+The New York 8 county data set contains population standardized leukemia cases, with `Z` as a transformed rate:
+
+```{r, echo=TRUE}
+NY8 <- st_read(system.file("shapes/NY8_utm18.shp", package="spData"))
+NY8 <- st_buffer(NY8, dist=0)
+```
+
+
+```{r, echo=TRUE}
+tm_shape(NY8) + tm_fill("Z", midpoint=0)
+```
+
+Create a neighbour object:
+
+```{r, echo=TRUE}
+NY_nb <- poly2nb(NY8)
+NY_lw <- nb2listw(NY_nb, style="B")
+```
+
+Check how the SAR and CAR models behave, with and without case weights:
+
+```{r, echo=TRUE}
+mod1 <- spautolm(Z ~ PEXPOSURE + PCTAGE65P + PCTOWNHOME, data=NY8, family="CAR", listw=NY_lw, weights=POP8)
+summary(mod1)
+```
+
+This data set is used Waller and Gotway [-@WallerGotway:2004], and in both editions of ASDAR. It is harder to deploy Poisson models because the cases are not integer counts.

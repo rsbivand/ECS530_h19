@@ -1,7 +1,7 @@
 ---
 title: "ECS530: (VI) Spatial autocorrelation"
 author: "Roger Bivand"
-date: "Thursday 5 December 2019, 09:15-11.00, aud. C"
+date: "Wednesday 4 December 2019, 09:15-11.00, aud. C"
 output: 
   html_document:
     toc: true
@@ -33,7 +33,7 @@ needed <- c("igraph", "tmap", "spdep", "spData", "sp", "gstat", "sf", "spatstat"
 
 ### Script
 
-Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_IV.zip. Download to suitable location, unzip and use as basis.
+Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_VI.zip. Download to suitable location, unzip and use as basis.
 
 ## Schedule
 
@@ -41,11 +41,11 @@ Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_IV.z
 
 - 3/12 (III) Coordinate reference systems, (IV) Visualization
 
-- 4/12 (V) R/GIS interfaces, *project surgery*
+- 4/12 **(VI) Spatial autocorrelation**, *project surgery*
 
-- 5/12 **(VI) Spatial autocorrelation**, (VII) Spatial regression
+- 5/12 (VII) Spatial regression, (VIII) Spatial multilevel regression
 
-- 6/12 (VIII) Interpolation, point processes, *project surgery*
+- 6/12 (IX) Interpolation, point processes, *project surgery*
 
 - 7/12 *Presentations*
 

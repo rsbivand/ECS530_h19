@@ -1545,13 +1545,12 @@ div.tocify {
 <li><p>6/12 (IX) Interpolation, point processes, <em>project surgery</em></p></li>
 <li><p>7/12 <em>Presentations</em></p></li>
 </ul>
-</div>
-<div id="session-vii" class="section level2">
-<h2>Session VII</h2>
+<div id="session-vii" class="section level3">
+<h3>Session VII</h3>
 <ul>
-<li><p>09:15-09:45</p></li>
-<li><p>09:45-10:30</p></li>
-<li><p>10:30-11:00</p></li>
+<li><p>09:15-09:45 Spatial regression background</p></li>
+<li><p>09:45-10:30 Simultaneous autoregression</p></li>
+<li><p>10:30-11:00 Conditional autoregression &amp; Markov Random Fields</p></li>
 </ul>
 <pre class="r"><code>library(sf)
 nc &lt;- st_read(system.file(&quot;shapes/sids.shp&quot;, package=&quot;spData&quot;)[1], quiet=TRUE)
@@ -1564,6 +1563,7 @@ gal_file &lt;- system.file(&quot;weights/ncCR85.gal&quot;, package=&quot;spData&
 ncCR85 &lt;- read.gal(gal_file, region.id=nc$FIPSNO)
 nc_lw &lt;- nb2listw(ncCR85, style=&quot;B&quot;)
 nc_W &lt;- as(nc_lw, &quot;CsparseMatrix&quot;)</code></pre>
+</div>
 </div>
 <div id="simultaneous-autoregressive-approaches" class="section level2">
 <h2>Simultaneous autoregressive approaches</h2>

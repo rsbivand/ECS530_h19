@@ -1,0 +1,944 @@
+---
+title: "ECS530: (IX) Interpolation, point processes"
+author: "Roger Bivand"
+date: "Friday 6 December 2019, 09:15-11.00, aud. C"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+theme: united
+bibliography: ecs530.bib
+link-citations: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Copyright
+
+All the material presented here, to the extent it is original, is available under [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/). Parts build on joint tutorials with Edzer Pebesma.
+
+### Required current contributed CRAN packages:
+
+I am running R 3.6.1, with recent `update.packages()`.
+
+```{r, echo=TRUE}
+needed <- c("spatstat", "spatstat.data", "maptools", "rgdal", "ranger", "rgeos", "sp", "geoR")
+```
+
+### Script
+
+Script and data at https://github.com/rsbivand/ECS530_h19/raw/master/ECS530_IX.zip. Download to suitable location, unzip and use as basis.
+
+## Schedule
+
+- 2/12 (I) Spatial data representation, (II) Support+topology, input/output
+
+- 3/12 (III) Coordinate reference systems, (IV) Visualization
+
+- 4/12 (VI) Spatial autocorrelation, *project surgery*
+
+- 5/12 (VII) Spatial regression, (VIII) Spatial multilevel regression
+
+- 6/12 **(IX) Interpolation, point processes**, *project surgery*
+
+- 7/12 *Presentations*
+
+
+## Session IX
+
+- 09:15-09:45 
+
+- 09:45-10:30 
+
+- 10:30-11:00 
+
+# Interpolation
+
+### Outline
+
+What is interpolation, and what does it require with regard to data, observation and prediction locations?
+
+The support of the observation and prediction locations - what is it, and how does it affect interpolation?
+
+Standard models for interpolation: deterministic and geostatistical prediction for continuous variables
+
+Extensions to the standard model for non-standard data and non-planar locations
+
+### Interpolation and geostatistics
+
+Geostatistics is a bit like the alchemy of spatial statistics, focussed more on prediction than model fitting
+
+Since the reason for modelling is chiefly prediction in pre-model-based geostatistics, and to a good extent in model-based geostatistics, we'll also keep to interpolation here
+
+Interpolation is trying to make as good guesses as possible of the values of the variable of interest for places where there are no observations (can be in 1, 2, 3, $\ldots$ dimensions)
+
+These are based on the relative positions of places with observations and places for which predictions are required, and the observed values at observations
+
+Interpolation for point data involves estimates of a variable (or variables) from known observations at known positions to unknown positions
+
+If the observation and prediction positions have point support, then we dealing with interpolation for point data
+
+The underlying assumptions for all interpolation include distributional assumptions about the data, assumptions about the quality of the data and covariates, and assumptions about the quality of positional support and measurement
+
+The standard model assumes planar geometry, error-free coordinates and covariates, and data that are observed as directly as possible from the same realization of the data generation process
+
+## Modelling error processes
+
+Since predictions are only of use if we know how far we can rely on them, all interpolation should try to accommodate uncertainty about measurements
+
+If we are binning to try to obtain observations'', we are going much further than experimental scientists do in designing model matrices, we have much less control over the values of the predictors
+
+Model-based geostatistics are among the techniques that can be used, but we can start from block kriging to get a feel for COSP
+
+Very likely, Hierarchical or other Markov chain Monte Carlo (MCMC) models will be required to specify the errors to propagate
+
+## Deterministic interpolation
+
+We could say that we know very little about any spatial process in the DGP, and take the value at each prediction point as the value at the nearest observation, disregarding covariates
+
+We could extend this by taking some measure of the values observed at nearby observations, for example a median or average
+
+Inverse distance weighting with a power parameter interpolates by taking the distance-weighted mean of all, or a local region of, observations
+
+Trend surfaces fit a surface through the observations using a polynomial in the point coordinates of the observations; splines also fit a surface based on local fits
+
+### Statistical interpolation
+
+While splines may have a statistical interpretation, they are often used deterministically, but as with IDW and trend surface, the fitted model may be chosen by cross-validation (eg. Geostatistical Analyst in ArcGIS)
+
+It is also perfectly possible to fit an aspatial statistical model with covariates (linear, GLM, GAM, CART, etc.), and predict to locations for which observations on the covariates are available
+
+Many of these can be extended to their mixed-model version, as LME, GLMM, GAMM, etc., using a spatial process model for random effects, or for example a spline surface in the observation coordinates (GAM)
+
+The spatial process models are mostly geostatistical, so we'll focus on these
+
+### Spatial processes
+
+Assuming that we have a response variable and perhaps explanatory
+variables observed on the same support and yielding a mean-stationary
+error process, our interest is in finding out whether there is
+still useful information in the error
+
+The information may take
+the form of spatial covariance, the error autocorrelation between
+observation
+
+This also involves the introduction of the concept of the random field, a
+stochastic process in more than one dimension, as a representation of
+space, where these can be continuous or discrete
+
+The continuous form is:
+
+\[
+Z(\mathbf{s}) = \mu(\mathbf{s}) + W(\mathbf{s}) + \eta(\mathbf{s}) + \epsilon(\mathbf{s}),
+\] 
+where $Z(\mathbf{s})$ is a random field, $\mathbf{s} = [s_1, s_2, \ldots,
+s_d]'$ are the coordinates of a spatial process indexed over $D \subset
+\mathcal{R}^d$, the mean function $\mu(\mathbf{s})$ is the large-scale trend,
+$W(\mathbf{s})$ is the smooth-scale variation and is a stationary
+process with a covariance function, $\eta(\mathbf{s})$ is the often
+unobservable micro-scale variation, and $\epsilon(\mathbf{s})$ is white
+noise measurement error
+
+### Fitting the covariance function
+
+In geostatistics, two steps are involved in prediction from point data, first modelling the smooth-scale variation, then making the prediction from the mean function and this fitted model
+
+The first step in practice involves fitting a variogram model to the observed differences in the residuals of the model after fitting the mean function between pairs of observation points
+
+The fitting of a model to the empirical variogram may be done by hand and by a number of statistical techniques (which depend on assumptions)
+
+Choosing a different variogram model may lead to differences in predictions; it may not be possible to choose a satisfactory model
+
+### ESDA - geostatistics
+
+It is probable that more exploratory spatial data analysis is
+done in geostatistics than in the remaining domains of spatial data
+analysis
+
+It is easy to grasp why
+interpolation is crucially dependent on identifying the right model,
+in terms of the selection of observation locations, the fitting of models
+of spatial autocorrelation, detecting useful covariates, and checking
+the appropriateness of assumptions such as isotropy
+
+Here we will use a data set of precipitation values for Switzerland,
+discussed in Diggle and Ribeiro (2007),
+and used in the Spatial Interpolation Comparison 97''
+contest
+
+The examples demonstrate that geostatistics software, here
+\RR packages, provides much support for exploratory spatial
+data analysis
+
+## Swiss precipitation ESDA
+
+
+Both **geoR** and **gstat** include data for preciptation for 467 met. stations in Switzerland, for 8 May 1986, measured in 0.1 mm. We'll fit with 100 training sites, and predict to the remaining 367 sites. **geoR** gives a the four-panel ESDA display that conveys a lot of information for the 100 training sites.
+
+
+```{r , echo = TRUE}
+library(geoR)
+data(SIC)
+```
+
+```{r, echo = TRUE}
+plot(sic.100, borders=sic.borders, lowess=TRUE)
+```
+
+
+### Variogram diagnostics
+
+
+The first diagnostic plot provided in **gstat** is known as
+an $h$-scatterplot, and conditions a scatterplot of the values at pairs
+of locations on the binned distance $h_{ij}$ between them; the diagonal 
+lines represent perfect correlation
+
+
+```{r , echo = TRUE}
+library(sp)
+library(gstat)
+sic.100SP <- SpatialPointsDataFrame(SpatialPoints(sic.100$coords),
+ data=data.frame(precip=sic.100$data, altitude=sic.100$altitude))
+sic.allSP <- SpatialPointsDataFrame(SpatialPoints(sic.all$coords),
+ data=data.frame(precip=sic.all$data, altitude=sic.all$altitude))
+names(sic.allSP) <- c("precip", "altitude")
+```
+
+```{r , echo = TRUE}
+hscat(precip ~ altitude, data=sic.100SP, seq(0,120,20))
+```
+
+
+We now compute a variogram cloud plot and a plot of
+empirical variogram values for 20 5km wide bins, for classical and robust
+versions of the variogram. The bin borders are shown to highlight how the empirical variogram is constructed as a measure of
+central tendency of squared differences in the variable of interest
+between pairs of points whose inter-point distance falls into the bin
+
+
+```{r , echo = TRUE}
+g <- gstat(id="precip", formula=precip ~ altitude, data=sic.100SP)
+evgm <- variogram(g, cutoff=100, width=5)
+revgm <- variogram(g, cutoff=100, width=5, cressie=TRUE)
+cevgm <- variogram(g, cutoff=100, width=5, cloud=TRUE)
+```
+
+```{r, echo = TRUE}
+oopar <- par(mfrow=c(1,2))
+plot(gamma ~ dist, cevgm, pch=".", cex=2, col="grey65", ylab="semivariance", xlab="distance")
+lines(gamma ~ dist, evgm, lwd=2)
+lines(gamma ~ dist, revgm, lwd=2, lty=2)
+abline(v=seq(0,100,5), lty=2, col="grey50")
+plot(gamma ~ dist, evgm, ylab="semivariance", xlab="distance", type="b", lwd=2)
+points(gamma ~ dist, revgm, pch=3)
+lines(gamma ~ dist, revgm, lty=2, lwd=2)
+abline(v=seq(0,100,5), lty=2, col="grey50")
+legend("topleft", legend=c("classic", "robust"), pch=c(1,3), lty=c(1,2), bty="n", lwd=2)
+par(oopar)
+```
+
+
+We can close in on these within-bin distributions by using boxplots constructed from the **gstat** variogram cloud --- box widths proportional to pair counts in bins, classical empirical variogram shown as dashed line; the **fields** package
+returns number summaries by bin in addition to the classical variogram
+estimator in output from the `vgram` function
+
+
+```{r, echo = TRUE}
+dbin <- findInterval(cevgm$dist, seq(0, 100, 5), all.inside=TRUE)
+wid <- tapply(cevgm$gamma, dbin, length)
+boxplot(cevgm$gamma ~ dbin, width=wid, ylab="semivariance", xlab="distance", axes=FALSE)
+axis(2)
+axis(1, at=c(0.5, 5.5, 10.5, 15.5, 20.5), labels=c(0, 25, 50, 75, 100)) 
+box()
+lines(gamma ~ I(dist/5), evgm, lwd=2, lty=2)
+```
+
+
+Finally, we explore possible anisotropy in the data set. Using the same bins as earlier,
+we add arguments to the `variogram` function to create objects
+for plotting, a variogram map, and four empirical
+variograms for four axes at $0\,^{\circ}$, $45\,^{\circ}$, $90\,^{\circ}$
+and $135\,^{\circ}$; the variogram direction lines are coded in the
+same way on both panels
+
+
+```{r , echo = TRUE}
+mevgm <- variogram(g, cutoff=100, width=5, map=TRUE)
+aevgm <- variogram(g, cutoff=100, width=5, alpha=c(0, 45, 90, 135))
+```
+
+```{r, echo=TRUE}
+library(RColorBrewer)
+oopar <- par(mar=c(1,1,1,1))
+image(mevgm$map, col=colorRampPalette(brewer.pal(7, "Blues")[-(6:7)])(20))
+abline(v=0, lty=1)
+abline(a=0, b=1, lty=2)
+abline(h=0, lty=3)
+abline(a=0, b=-1, lty=4)
+par(oopar)
+```
+
+```{r, echo=TRUE}
+library(lattice)
+trellis.device(new=FALSE,color=FALSE)
+plot(aevgm, multipanel=FALSE)
+```
+
+### Variogram fitting in geoR
+
+
+First we will fit a Matern variogram model in **geoR** using weighted least squares and maximum likelihood:
+
+
+```{r , echo = TRUE}
+evg <- variog(sic.100, max.dist=200, trend=formula(~altitude), messages=FALSE)
+fvg <- variofit(evg, messages=FALSE)
+ml <- likfit(sic.100, ini.cov.pars=c(0.5, 0.5), trend=formula(~altitude), messages=FALSE)
+```
+
+```{r, echo=TRUE}
+plot(evg)
+lines(fvg)
+lines(ml, lty=2)
+legend("topleft", legend=c("WLS", "ML"), lty=1:2, bty="n")
+```
+
+### Variogram fitting in gstat
+
+
+Next we will fit a Matern variogram model in **gstat**:
+
+
+```{r , echo = TRUE}
+evgm <- variogram(g, cutoff=200, width=5)
+fevgm <- fit.variogram(evgm, vgm(psill=16000, model="Mat", range=30, nugget=1, kappa=0.5))
+fevgm
+```
+
+```{r, echo=TRUE}
+plot(evgm, model=fevgm)
+```
+
+
+## Kriging --- prediction from the variogram model
+
+The geostatistical packages, like **gstat**, use formula objects in standard ways where possible, which allows for considerable flexibility:
+
+```{r , echo = TRUE}
+UK_fit <- gstat(g, id="precip", model=fevgm)
+z <- predict(UK_fit, newdata=sic.allSP, debug.level=0)
+sic.367SP <- sic.allSP[which(z$precip.var > 0.0001),]
+z <- predict(UK_fit, newdata=sic.367SP, debug.level=0)
+```
+
+
+Using **geoR**, we get:
+
+```{r , echo = TRUE, cache=TRUE}
+kcwls <- krige.conv(sic.100, locations=coordinates(sic.367SP),
+  krige=krige.control(obj.model=fvg, type.krige="OK",
+  trend.d=formula(~altitude), trend.l=formula(~sic.367SP$altitude)))
+kcml <- krige.conv(sic.100, locations=coordinates(sic.367SP),
+ krige=krige.control(obj.model=ml, type.krige="OK",
+ trend.d=formula(~altitude), trend.l=formula(~sic.367SP$altitude)))
+kcB <- krige.bayes(sic.100, locations=coordinates(sic.367SP),
+ model=model.control(trend.d=formula(~altitude),
+ trend.l=formula(~sic.367SP$altitude)))
+```
+
+### MCMC draws for one prediction location
+
+
+The point about the standard assumptions is that when they are met, the prediction standard errors are tractable --- we plot the MCMC prediction simulations for location 1:
+
+
+```{r , echo = TRUE}
+plot(density(kcB$predictive$simulations[1,]))
+abline(v=kcB$predictive$mean[1], col="red", lwd=2)
+curve(dnorm(x, mean=kcB$predictive$mean[1],
+ sd=sqrt(kcB$predictive$variance[1])), lty=2, lwd=2, from=-100, to=500, add=TRUE)
+abline(v=sic.367SP$precip[1], col="blue", lwd=2)
+```
+
+### Kriging --- variogram automatic selection
+
+The **automap** package builds on **gstat** to automate the choice of variogram model:
+
+```{r , echo = TRUE}
+library(automap)
+aK <- autoKrige(formula=precip ~ altitude, input_data=sic.100SP, new_data=sic.367SP)
+aK$var_model
+```
+
+```{r , echo=TRUE}
+plot(aK)
+```
+
+## ML-based interpolation?
+
+\citet{10.7287/peerj.preprints.26693v3} point to possible uses of ML technologies for interpolation, and give code examples on the [\textcolor{mLightBrown}{GeoMLA github repo}](https://github.com/thengl/GeoMLA). Further examples for  [\textcolor{mLightBrown}{"Predictive Soil Mapping with R"}](https://envirometrix.github.io/PredictiveSoilMapping/) are provided in an ebook. First distance matrices are constructed and converted to data frames:
+
+```{r, echo = TRUE}
+#grid.dist0 <- GSIF::buffer.dist(sic.100SP["precip"], sic.367SP[1], as.factor(1:nrow(sic.100SP)))
+library(rgeos)
+dist0 <- as.data.frame(gDistance(sic.100SP["precip"], sic.100SP["precip"], byid=TRUE))
+names(dist0) <- paste("layer", names(dist0), sep=".")
+dist1 <- as.data.frame(gDistance(sic.100SP["precip"], sic.367SP["precip"], byid=TRUE))
+names(dist1) <- paste("layer", names(dist1), sep=".")
+```
+
+Then the observed responses and any covariates are added to the per-observation distances, and a formula constructed:
+
+```{r, echo = TRUE}
+rm.precip <- cbind(as.data.frame(sic.100SP)[c("precip", "altitude")], dist0)
+rm.precip1 <- cbind(as.data.frame(sic.367SP)[c("altitude")], dist1)
+```
+
+```{r, echo = TRUE}
+dn0 <- paste(names(dist0), collapse="+")
+fm0 <- as.formula(paste("precip ~ altitude +", dn0))
+#fm0
+```
+
+
+The `ranger` function from the **ranger** package can be used for fast random forest fitting:
+
+```{r, echo = TRUE}
+library(ranger)
+m.precip <- ranger(fm0, rm.precip, quantreg=TRUE, num.trees=150, seed=1)
+m.precip
+```
+
+And make predictions from the fitted model for the 367 weather stations held back:
+
+```{r, echo = TRUE}
+quantiles <- c(pnorm(1, lower.tail=FALSE), 0.5, pnorm(1))
+precip.rfd <- as.data.frame(predict(m.precip, rm.precip1, type="quantiles",
+                                     quantiles=quantiles)$predictions)
+```
+
+```{r, echo = TRUE}
+res <- SpatialPointsDataFrame(as(sic.367SP, "SpatialPoints"),
+                  data=cbind(sic.367SP[["precip"]], precip.rfd,
+                  as.data.frame(aK$krige_output)[,3:5]))
+res$rf_sd <- (res[[4]] - res[[2]])/2
+names(res) <- make.names(names(res))
+```
+
+
+
+```{r, echo=TRUE}
+spplot(res, zcol=c(1,5,3))
+```
+
+```{r, echo=TRUE}
+spplot(res, zcol=c(7,8))
+```
+
+Then the observed responses and any covariates are added to the per-observation distances, and a formula constructed:
+
+```{r, echo = TRUE}
+xy100 <- coordinates(sic.100SP)
+xy367 <- coordinates(sic.367SP)
+rm.precip <- cbind(as.data.frame(sic.100SP)[c("precip", "altitude")], x=xy100[,1], y=xy100[,2], dist0)
+rm.precip1 <- cbind(as.data.frame(sic.367SP)[c("altitude")], x=xy367[,1], y=xy367[,2], dist1)
+```
+
+```{r, echo = TRUE}
+dn0 <- paste(names(dist0), collapse="+")
+fm0 <- as.formula(paste("precip ~ altitude + x + y +", dn0))
+#fm0
+```
+
+```{r, echo = TRUE}
+m.precip <- ranger(fm0, rm.precip, quantreg=TRUE, num.trees=150, seed=1)
+m.precip
+```
+
+And make predictions from the fitted model for the 367 weather stations held back:
+
+```{r, echo = TRUE}
+quantiles <- c(pnorm(1, lower.tail=FALSE), 0.5, pnorm(1))
+precip.rfd <- as.data.frame(predict(m.precip, rm.precip1, type="quantiles",
+                                     quantiles=quantiles)$predictions)
+```
+
+```{r, echo = TRUE}
+res <- SpatialPointsDataFrame(as(sic.367SP, "SpatialPoints"),
+                  data=cbind(sic.367SP[["precip"]], precip.rfd,
+                  as.data.frame(aK$krige_output)[,3:5]))
+res$rf_sd <- (res[[4]] - res[[2]])/2
+names(res) <- make.names(names(res))
+```
+
+
+```{r, echo=TRUE}
+spplot(res, zcol=c(1,5,3))
+```
+
+```{r, echo=TRUE}
+spplot(res, zcol=c(7,8))
+```
+
+
+
+
+# Point patterns
+
+
+### Outline
+
+What we see on a map is a pattern, or perhaps some patterns mixed
+together.
+
+It is not easy to work back from map pattern to the process or
+processes that generated it/them.
+
+Using a variety of approaches, we can explore and analyse point
+patterns, also reviewing an important chapter in the development of
+quantitative geography.
+
+Practically, we will also see how we can try out different
+approaches, and how their assumptions affect our conclusions.
+
+
+### References
+
+David O'Sullivan and David Unwin (2003) \emph{Geographical Information
+Analysis}, Wiley, chapter 4, plus chapter 3 for the curious (or 2010, ch. 5 plus ch. 4);
+
+Ian Smalley and David Unwin (1968) The formation and shape of
+drumlins and their distribution and orientation in drumlin fields,
+\emph{Journal of Glaciology}, 7, pp. 377--390; Alan R. Hill (1973) The distribution of drumlins in County Down, Ireland, \emph{Annals, AAG}, 63 (2). pp. 226--240.
+
+Others may also like Trevor Bailey and Anthony Gatrell (1995) \emph{Interactive spatial data analysis}, Longman, chapter 3.
+
+
+
+### Drumlins, Poland
+
+![](drumlin0.png)
+
+![](drumlin1.png)
+
+
+
+## Data, drumlins, County Down, Ireland
+
+```{r, echo = TRUE}
+library(rgdal)
+drumlins <- readOGR(".", "drumlins")
+drumlins_SP <- as(drumlins, "SpatialPoints")
+ 
+```
+
+A data set similar to the one refered to by O'Sullivan and Unwin on p. 100-101 is available in **spatial** in R (associated with Venables and Ripley (2002) Modern Applied Statistics with S) --- it is the one used by Upton and Fingleton, coded by Ripley. We have here copied the points to a shapefile.
+
+![Hill, 1973](hill1a.png)
+![Upton & Fingleton, 1985](hill2.png)
+
+
+### Using **spatstat** with **sp**
+
+
+```{r, echo = TRUE}
+library(maptools)
+library(spatstat)
+drumlins_ppp <- as(drumlins_SP, "ppp")
+head(drumlins_ppp)
+```
+
+Although **spatstat** and the **sp** classes have developed independently, they have a good deal in common, and point patterns, images and polygon windows can be exchanged
+
+
+### Edges and plot
+
+
+Point pattern objects need bounding windows to show where the population of data points were collected. The default window is the bounding box of the points, but others are available.
+
+```{r, echo = TRUE}
+bb <- boundingbox(drumlins_ppp)
+ch <- convexhull.xy(drumlins_ppp)
+rr <- ripras(drumlins_ppp)
+drumlins_rr <- ppp(drumlins_ppp$x, drumlins_ppp$y, window=rr)
+```
+
+
+```{r, echo=TRUE}
+plot(drumlins_ppp)
+plot(bb, add=TRUE, border="darkgreen", lwd=2, lty=1)
+plot(ch, add=TRUE, border="darkred", lwd=2, lty=3)
+plot(rr, add=TRUE, border="orange", lwd=2, lty=2)
+```
+
+
+
+### Quadrat analysis
+
+
+One legacy approach to point patterns, avoiding the drudge of measuring inter-point distances, has been to divide the study area into quadrats, and count the numbers of points falling into each quadrat. This can take the form of a 2D histogram, or be displayed as an image plot.
+
+```{r, echo = TRUE}
+qc <- quadratcount(drumlins_ppp)
+```
+
+
+```{r, echo=TRUE}
+cellsize <- mean(diff(attr(qc, "xbreaks")))
+cellsize <- c(cellsize, mean(diff(attr(qc, "ybreaks"))))
+grd <- GridTopology(c(attr(qc, "xbreaks")[1]+cellsize[1]/2, attr(qc, "ybreaks")[1]+cellsize[2]/2), cellsize, dim(qc))
+t3 <- cbind(coordinates(grd), c(t(qc)))
+plot(as(SpatialGrid(grd), "Spatial"), axes=TRUE)
+title(main="Quadrat counts")
+plot(drumlins_SP, add=TRUE, cex=0.8)
+text(t3[,1], t3[,2], t3[,3], cex=1.2, font=2, col="darkred")
+abline(h=attr(qc, "ybreaks"))
+abline(v=attr(qc, "xbreaks"))
+```
+
+ 
+
+### Quadrat tests
+
+Chi-squared tests for Complete Spatial Randomness using quadrat counts may seem attractive, but suffer from the same problems as do histogram bins:
+
+```{r, echo = TRUE}
+quadrat.test(drumlins_ppp)
+```
+
+
+Just adding one more row and column of quadrats, or switching windows, changes our conclusion:
+
+```{r, echo = TRUE}
+quadrat.test(drumlins_ppp, nx=6)
+quadrat.test(drumlins_rr)
+```
+
+
+### Density plots
+
+Density plots use a 2D kernel, in **spatstat** a Gaussian kernel, to create smoothed histograms avoiding the problems of quadrat counts. The key argument to pass to the density method for point patterm objects is `sigma=`, which determines the bandwidth of the kernel. Since we can coerce the image objects output by the method to an **sp** class, we use this to cumulate density values for different values of sigma.
+
+```{r, echo = TRUE}
+SPrr <- as(rr, "SpatialPolygons")
+SG0 <- Sobj_SpatialGrid(SPrr)$SG
+crds <- coordinates(SG0)
+crds <- list(x=crds[,1], y=crds[,2])
+k025 <- density(drumlins_rr, sigma=0.25, xy=crds)
+SG <- as(k025, "SpatialGridDataFrame")
+k050 <- density(drumlins_rr, sigma=0.5, xy=crds)
+SG <- cbind(SG, as(k050, "SpatialGridDataFrame"))
+k075 <- density(drumlins_rr, sigma=0.75, xy=crds)
+SG <- cbind(SG, as(k075, "SpatialGridDataFrame"))
+k100 <- density(drumlins_rr, sigma=1.0, xy=crds)
+SG <- cbind(SG, as(k100, "SpatialGridDataFrame"))
+names(SG) <- c("k025", "k050", "k075", "k100")
+```
+
+
+```{r, echo=TRUE}
+spl <- list("sp.points", drumlins, pch=".", col=1)
+spplot(SG, c("k025", "k050", "k075", "k100"), col.regions=terrain.colors(16), cuts=15, sp.layout=list(spl), par.strip.text=list(cex=0.7))
+```
+
+
+Narrower bandwidths yield more extreme values, broader bandwidths narrow the interquartile range. From this table, we can see how the change in the bandwidth is affecting the relative differences in our view of the local estimates of intensity.
+
+```{r, echo = TRUE}
+summary(as(SG, "data.frame")[,1:4])
+```
+
+
+### Nearest-neighbour distances
+
+
+We can find and plot nearest neighbour distances, finding them with `nndist` --- plotting the empirical cumulative distribution function of the nearest neighbour distances is interesting:
+
+```{r, echo = TRUE}
+nns <- nndist(drumlins_rr)
+summary(nns)
+```
+
+
+```{r, echo=TRUE}
+plot(ecdf(nns))
+```
+
+
+
+### Using G-hat - empirical cumulative distribution function
+
+
+The $\hat{G}$ measure turns out to be just the ECDF of the nearest neighbour distances, plotted by default with the expected CSR line; `Gest` returns binned values for a range of distance bins best chosen by the function:
+
+```{r, echo = TRUE, eval=FALSE}
+plot(ecdf(nns), xlim=c(0, 0.5))
+plot(Gest(drumlins_ppp), add=TRUE, lwd=3)
+```
+
+
+
+
+If we generate many simulated CSR point patterns for the current window, we can use the `envelope` method to explore whether the observed $\hat{G}$ measures lie in relation to the simulated ones:
+
+```{r, echo = TRUE}
+n <- drumlins_rr$n
+set.seed(121122)
+ex <- expression(runifpoint(n, win=rr))
+res <- envelope(drumlins_rr, Gest, nsim=99, simulate=ex, 
+        verbose=FALSE, savefuns=TRUE)
+```
+
+
+```{r , echo=TRUE}
+plot(res, xlim=c(0,0.7))
+for(i in 2:100) lines(attr(res, "simfuns")[[1]], attr(res, "simfuns")[[i]], col="grey")
+plot(res, add=TRUE, lwd=3, xlim=c(0,0.7))
+```
+
+ 
+
+
+
+### Clark/Evans R statistics
+
+We can also compute the nearest neighbour based Clark/Evans R statistic :
+
+```{r, echo = TRUE}
+clarkevans(drumlins_ppp)
+clarkevans(drumlins_rr, correction="none")
+clarkevans(drumlins_rr, correction="guard", clipregion=erosion.owin(rr, r=1))
+```
+
+
+which seem to indicate that the observed and CSR expected distances are similar, but perhaps more evenly spaced than clustered.
+
+
+### Was CSR a good idea?
+
+From what we have seen, it appears the the drumlin summit points are more regularly than randomly distributed. If we think, however, the absence of short nearest neighbour distance may mean that they "push" each other apart (in fact this is about points not being a good way of representing ellipses) --- so we can try to simulate from a Simple Sequential Inhibition (SSI) process with a 180m inhibition radius instead of CSR:
+
+
+```{r, echo = TRUE, cache=TRUE}
+ex <- expression(rSSI(0.18, n, win=rr))
+set.seed(121122)
+res <- envelope(drumlins_rr, Gest, nsim=99, simulate=ex, 
+                verbose=FALSE, savefuns=TRUE)
+```
+
+
+```{r, echo=TRUE}
+capture.output(plot(res, xlim=c(0,0.7)))
+for(i in 2:100) lines(attr(res, "simfuns")[[1]], attr(res, "simfuns")[[i]], col="grey")
+capture.output(plot(res, add=TRUE, lwd=3, xlim=c(0,0.7)))
+```
+
+
+
+### K-hat with CSR simulation
+
+
+As we know, G-hat uses nearest neighbour distances to express summary features of a point pattern. The K-hat function uses point intensities in rings spreading out from the points, and so uses more of the data to examine what is driving the process (reported here as L-hat):
+
+```{r, echo = TRUE, cache=TRUE}
+ex <- expression(runifpoint(n, win=rr))
+set.seed(121122)
+res <- envelope(drumlins_rr, Kest, nsim=99, simulate=ex, 
+                verbose=FALSE, savefuns=TRUE)
+```
+
+
+```{r, echo=TRUE}
+r <- res$r
+Lhat <- function(k, r) { (sqrt(k/pi)) - r }
+plot(r, Lhat(res$obs, r), type="n", ylab="L(r)", main="CSR simulation", ylim=c(-0.17, 0.1))
+for(i in 2:100) lines(r, Lhat(attr(res, "simfuns")[[i]], r), col="grey")
+lines(r, Lhat(res$obs, r), lwd=2, col="brown")
+lines(r, Lhat(res$lo, r), lwd=2, col="black", lty=2)
+lines(r, Lhat(res$hi, r), lwd=2, col="black", lty=2)
+```
+
+### K-hat with SSI simulation
+
+
+From what we already know, drumlins represented as points appear to inhibit each other under a distance of about 200m, so running the $\hat{K}$ measure with an SSI process should show more of what is going on:
+
+```{r, echo = TRUE, cache=TRUE}
+ex <- expression(rSSI(0.18, n, win=rr))
+set.seed(121122)
+res <- envelope(drumlins_rr, Kest, nsim=99, simulate=ex, 
+                verbose=FALSE, savefuns=TRUE)
+```
+
+
+```{r, echo=TRUE}
+r <- res$r
+Lhat <- function(k, r) { (sqrt(k/pi)) - r }
+plot(r, Lhat(res$obs, r), type="n", ylab="L(r)", main="SSI simulation", ylim=c(-0.17, 0.1))
+for(i in 2:100) lines(r, Lhat(attr(res, "simfuns")[[i]], r), col="grey")
+lines(r, Lhat(res$obs, r), lwd=2, col="brown")
+lines(r, Lhat(res$lo, r), lwd=2, col="black", lty=2)
+lines(r, Lhat(res$hi, r), lwd=2, col="black", lty=2)
+```
+
+
+### Inhomogeneous K-hat with CSR simulation
+
+
+Another possibility is that the CSR hypothesis is at error on assuming that the process is homogeneous --- we may also test against an inhomogeneous process using the `Kinhom` function. If its `lambda` argument is omitted, it does leave-one-out kernel smoothing to find $\lambda_i$ by omitting the $i$-th point:
+
+```{r, echo = TRUE, cache=TRUE}
+ex <- expression(runifpoint(n, win=rr))
+set.seed(121122)
+res <- envelope(drumlins_rr, Kinhom, nsim=99, simulate=ex, 
+                verbose=FALSE, savefuns=TRUE)
+```
+
+
+```{r, echo=TRUE}
+r <- res$r
+Lhat <- function(k, r) { (sqrt(k/pi)) - r }
+plot(r, Lhat(res$obs, r), type="n", ylab="L(r)", main="CSR simulation", ylim=c(-0.17, 0.1))
+for(i in 2:100) lines(r, Lhat(attr(res, "simfuns")[[i]], r), col="grey")
+lines(r, Lhat(res$obs, r), lwd=2, col="brown")
+lines(r, Lhat(res$lo, r), lwd=2, col="black", lty=2)
+lines(r, Lhat(res$hi, r), lwd=2, col="black", lty=2)
+```
+
+### Inhomogeneous $\hat{K}$ with SSI simulation
+
+
+Finally, we round off with an inhomogeneous SSI process:
+
+```{r, echo = TRUE, cache=TRUE}
+ex <- expression(rSSI(0.18, n, win=rr))
+set.seed(121122)
+res <- envelope(drumlins_rr, Kinhom, nsim=99, simulate=ex, 
+                verbose=FALSE, savefuns=TRUE)
+```
+
+
+```{r, echo=TRUE}
+r <- res$r
+Lhat <- function(k, r) { (sqrt(k/pi)) - r }
+plot(r, Lhat(res$obs, r), type="n", ylab="L(r)", main="SSI simulation", ylim=c(-0.17, 0.1))
+for(i in 2:100) lines(r, Lhat(attr(res, "simfuns")[[i]], r), col="grey")
+lines(r, Lhat(res$obs, r), lwd=2, col="brown")
+lines(r, Lhat(res$lo, r), lwd=2, col="black", lty=2)
+lines(r, Lhat(res$hi, r), lwd=2, col="black", lty=2)
+```
+
+
+### Conclusions about drumlins (so far)
+
+Comparing the SSI with the CSR results indicates that we can not only reject the CSR process as being that driving drumlin point locations, but we have good grounds to suppose that a spatial inhibition process is operating
+
+It is also very possible that the process is inhomogeneous, that is that an omitted heterogeneity in the surface is influencing the point pattern
+
+The minimum drumlin footprint is such that drumlins cannot be closer to each other than a certain minimum distance
+
+At short range, the estimated L-hat values are lower than the lower envelope bounds, but only less than 0.4 distance units --- this corresponds to spatial inhibition
+
+As the L-hat simulation values for the SSI process indicate, drumlins are not well represented by points, because they have area, even volume, and rarely overlap''
+
+## Case/control point patterns
+
+It is frequently the case that point patterns are not measured on homogeneous surfaces
+
+One way to tackle this is, as in these examples from Zhang et al. (2009), to sample from the population at risk to form a control group
+
+We are then interested in examining the spatial distribution of cases compared to the spatial distribution of controls
+
+The cases are observations of schistosomiasis in Guichi, China, and the controls are taken from the polulation at risk
+
+First we'll read in the points, enclosing polygon, and river banks:
+
+```{r, echo = TRUE}
+points <- readOGR(".", "points")
+rivers <- readOGR(".", "rivers")
+poly <- readOGR(".", "poly")
+```
+
+
+
+```{r, echo=TRUE}
+plot(poly)
+plot(rivers, add=TRUE)
+points(points, pch=as.integer(points$mark))
+```
+
+We coerce the **sp** objects to their **spatstat** representations, the points with marks:
+
+```{r, echo = TRUE}
+poly.owin <- as(poly, "owin")
+xy <- coordinates(points)
+points.ppp <- ppp(xy[,1], xy[,2], marks=points$mark, window=poly.owin)
+summary(points.ppp)
+```
+
+
+```{r, echo=TRUE}
+plot(split(points.ppp), nrows=2)
+```
+
+
+### Kernel density
+
+
+We make a mask for the kernel density calculations, and show the overall density:
+
+```{r, echo = TRUE}
+Mask <- Sobj_SpatialGrid(poly)
+o <- over(Mask$SG, poly)
+Mask1 <- SpatialGridDataFrame(slot(Mask$SG, "grid"), data=o)
+Mask2 <- as(Mask1, "SpatialPixelsDataFrame")
+XY <- coordinates(Mask2)
+XY <- list(x=XY[,1], y=XY[,2])
+Z <- density(points.ppp, xy=XY)
+```
+
+
+```{r, echo=TRUE}
+plot(Z)
+```
+
+
+### Case/control kernels
+
+
+The split density shows how the point patterns differ:
+
+```{r, echo = TRUE}
+Z <- density(split(points.ppp), xy=XY)
+```
+
+
+```{r, echo=TRUE}
+plot(Z, nrows=2)
+```
+
+### Kernel ratio
+
+
+We can also display the case density as a proportion of the overall density:
+
+```{r, echo = TRUE}
+pCases <- with(Z, eval.im(case/(case + control)))
+```
+
+
+```{r , echo=TRUE}
+plot(pCases)
+plot(points.ppp, add=TRUE)
+```
+
+
+

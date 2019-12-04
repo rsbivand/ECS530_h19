@@ -1549,9 +1549,9 @@ div.tocify {
 <div id="session-viii" class="section level2">
 <h2>Session VIII</h2>
 <ul>
-<li><p>13:15-13:45</p></li>
-<li><p>13:45-14:30</p></li>
-<li><p>14:30-15:00</p></li>
+<li><p>13:15-13:45 Introduction, Boston data set (II)</p></li>
+<li><p>13:45-14:30 Multilevel Boston</p></li>
+<li><p>14:30-15:00 Bayesian spatial econometrics</p></li>
 </ul>
 </div>
 <div id="multilevel-boston" class="section level1">
@@ -6197,7 +6197,7 @@ print(sdem.ml_imps)</code></pre>
               prior=list(gG_sige=TRUE))))</code></pre>
 <pre><code>## Warning: Function spBreg_err moved to the spatialreg package</code></pre>
 <pre><code>##    user  system elapsed 
-##   1.060   0.001   1.070</code></pre>
+##   1.068   0.000   1.076</code></pre>
 <pre class="r"><code>summary(sdem.SET0)</code></pre>
 <pre><code>## 
 ## Iterations = 1001:2000
@@ -6497,20 +6497,20 @@ c(mean=mean(sdemmarg[, &quot;x&quot;]), se=sd(sdemmarg[, &quot;x&quot;]))</code>
 ## 0.882004901 0.008689039</code></pre>
 <pre class="r"><code>system.time(mc.samples &lt;- inla.posterior.sample(niter, sdem.inla_slm))</code></pre>
 <pre><code>##    user  system elapsed 
-##   5.280   1.960   7.354</code></pre>
+##   5.457   1.947   7.878</code></pre>
 <pre class="r"><code>smple0 &lt;- t(sapply(mc.samples, function(x) x$latent[100:103]))
 colnames(smple0) &lt;- c(&quot;Direct_LAG&quot;, &quot;Direct_HOVAL&quot;, &quot;Indirect_LAG&quot;, &quot;Indirect_HOVAL&quot;)
 smple &lt;- cbind(smple0, Total_LAG=smple0[,1]+smple0[,3], Total_HOVAL=smple0[,2]+smple0[,4])</code></pre>
 <pre class="r"><code>(sdem.inla_mc_imps1 &lt;- apply(smple, 2, mean)[c(1,3,5,2,4,6)])</code></pre>
 <pre><code>##     Direct_LAG   Indirect_LAG      Total_LAG   Direct_HOVAL Indirect_HOVAL 
-##    -0.98883742    -1.02229120    -2.01112861    -0.27670288     0.08017887 
+##    -0.97568776    -0.96248685    -1.93817461    -0.28105884     0.07031822 
 ##    Total_HOVAL 
-##    -0.19652401</code></pre>
+##    -0.21074062</code></pre>
 <pre class="r"><code>(sdem.inla_mc_imps2 &lt;- apply(smple, 2, sd)[c(1,3,5,2,4,6)])</code></pre>
 <pre><code>##     Direct_LAG   Indirect_LAG      Total_LAG   Direct_HOVAL Indirect_HOVAL 
-##      0.3631146      0.7491308      0.8992604      0.1091803      0.2494275 
+##      0.3724843      0.7401691      0.9125361      0.1064599      0.2470628 
 ##    Total_HOVAL 
-##      0.3050271</code></pre>
+##      0.3051565</code></pre>
 </div>
 <div id="sdem-coefficients" class="section level3">
 <h3>SDEM coefficients</h3>
@@ -6563,18 +6563,18 @@ smple &lt;- cbind(smple0, Total_LAG=smple0[,1]+smple0[,3], Total_HOVAL=smple0[,2
 ## Total_HOVAL    -0.16391724 -0.18913760 -0.1701740 -0.21416705       -0.2013663
 ##                 0.23462885  0.26572927  0.2664718  0.29372938        0.2924087
 ##                sdem.inla_mc
-## Direct_INC      -0.98883742
-##                  0.36311457
-## Indirect_INC    -1.02229120
-##                  0.74913085
-## Total_INC       -2.01112861
-##                  0.89926044
-## Direct_HOVAL    -0.27670288
-##                  0.10918029
-## Indirect_HOVAL   0.08017887
-##                  0.24942749
-## Total_HOVAL     -0.19652401
-##                  0.30502711</code></pre>
+## Direct_INC      -0.97568776
+##                  0.37248431
+## Indirect_INC    -0.96248685
+##                  0.74016911
+## Total_INC       -1.93817461
+##                  0.91253611
+## Direct_HOVAL    -0.28105884
+##                  0.10645995
+## Indirect_HOVAL   0.07031822
+##                  0.24706282
+## Total_HOVAL     -0.21074062
+##                  0.30515648</code></pre>
 </div>
 <div id="slm-ml" class="section level3">
 <h3>SLM ML</h3>
@@ -6641,7 +6641,7 @@ smple &lt;- cbind(smple0, Total_LAG=smple0[,1]+smple0[,3], Total_HOVAL=smple0[,2
               control=list(ndraw=titer, nomit=nomit)))</code></pre>
 <pre><code>## Warning: Function spBreg_lag moved to the spatialreg package</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.953   0.028   0.990</code></pre>
+##   0.964   0.020   1.012</code></pre>
 <pre class="r"><code>summary(slm.SET0)</code></pre>
 <pre><code>## 
 ## Iterations = 1001:2000
@@ -6718,7 +6718,7 @@ smple &lt;- cbind(smple0, Total_LAG=smple0[,1]+smple0[,3], Total_HOVAL=smple0[,2
               control=list(ndraw=titer, nomit=nomit, prior=list(rhoMH=TRUE))))</code></pre>
 <pre><code>## Warning: Function spBreg_lag moved to the spatialreg package</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.876   0.011   0.890</code></pre>
+##   0.921   0.027   0.964</code></pre>
 <pre class="r"><code>summary(slm.SET1)</code></pre>
 <pre><code>## 
 ## Iterations = 1001:2000
@@ -6979,7 +6979,7 @@ slm.inla_slm_imps &lt;- summary(spdep:::impacts.MCMC_sar_g(smples, tr=tr),
               control=list(ndraw=titer, nomit=nomit)))</code></pre>
 <pre><code>## Warning: Function spBreg_lag moved to the spatialreg package</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.987   0.001   0.992</code></pre>
+##   1.013   0.004   1.033</code></pre>
 <pre class="r"><code>summary(sdm.SET0)</code></pre>
 <pre><code>## 
 ## Iterations = 1001:2000
@@ -7064,7 +7064,7 @@ slm.inla_slm_imps &lt;- summary(spdep:::impacts.MCMC_sar_g(smples, tr=tr),
               control=list(ndraw=titer, nomit=nomit, prior=list(rhoMH=TRUE))))</code></pre>
 <pre><code>## Warning: Function spBreg_lag moved to the spatialreg package</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.896   0.000   0.899</code></pre>
+##   0.932   0.003   0.951</code></pre>
 <pre class="r"><code>summary(sdm.SET1)</code></pre>
 <pre><code>## 
 ## Iterations = 1001:2000
@@ -7344,7 +7344,7 @@ attr(smples, &quot;type&quot;) &lt;- &quot;Durbin&quot;</code></pre>
 <pre><code>## Warning in max(which(detval21 &lt;= (lambda2 - gsize2))): no non-missing arguments
 ## to max; returning -Inf</code></pre>
 <pre><code>##    user  system elapsed 
-##   1.731   0.009   1.748</code></pre>
+##   1.744   0.019   1.789</code></pre>
 <pre class="r"><code>summary(sac.SET0)</code></pre>
 <pre><code>## 
 ## Iterations = 1001:2000
@@ -7437,7 +7437,7 @@ attr(smples, &quot;type&quot;) &lt;- &quot;Durbin&quot;</code></pre>
             control=list(pre_eig1=ev, pre_eig2=ev)))</code></pre>
 <pre><code>## Warning: Function sacsarlm moved to the spatialreg package</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.248   0.000   0.252</code></pre>
+##   0.252   0.001   0.257</code></pre>
 <pre class="r"><code>summary(sdac.ml)</code></pre>
 <pre><code>## 
 ## Call:spatialreg::sacsarlm(formula = formula, data = data, listw = listw, 
@@ -7504,7 +7504,7 @@ attr(smples, &quot;type&quot;) &lt;- &quot;Durbin&quot;</code></pre>
               control=list(ndraw=titer, nomit=nomit)))</code></pre>
 <pre><code>## Warning: Function spBreg_sac moved to the spatialreg package</code></pre>
 <pre><code>##    user  system elapsed 
-##   1.774   0.000   1.782</code></pre>
+##   1.989   0.006   2.032</code></pre>
 <pre class="r"><code>summary(sdac.SET0)</code></pre>
 <pre><code>## 
 ## Iterations = 1001:2000
