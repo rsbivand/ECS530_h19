@@ -219,7 +219,7 @@ These choices have not so far been required explicitly, but for example matching
 
 ### CRS status before GDAL3 and PROJ6
 
-The initial use of coordinate reference systems for objects defined ib **sp** was based on the PROJ.4 string representation, which built on a simplified key=value form. 
+The initial use of coordinate reference systems for objects defined in **sp** was based on the PROJ.4 string representation, which built on a simplified key=value form. 
 
 Keys began with plus (`+`), and the value format depended on the key. 
 
