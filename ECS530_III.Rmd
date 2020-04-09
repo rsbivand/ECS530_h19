@@ -184,7 +184,7 @@ In using a transformation hub, PROJ had worked adequately when the errors introd
 In addition, the need for precision has risen in agriculture and engineering. 
 So PROJ, as it was, risked ceasing to be fit for purpose as a fundamental component of the geospatial open source software stack.
 
-Following major changes in successive iterations of the international standards for coordinate reference systems [@iso19111], PROJ is changing from preferring "early-binding" transformations, pivoting through a known transformation hub in going from input to target coordinate reference systems, to "late-binding" transformations. 
+Following major changes in successive iterations of the international standards for coordinate reference systems [@iso19111], PROJ is changing from preferring "early-binding" transformations, pivoting through a known transformation hub in going from input to target coordinate reference systems, to "late-binding" transformations (early/late were reversed before 2020-04-09, thanks to Floris Vanderhaeghe for the correction). 
 
 This means that the user may be offered alternative paths from input to target coordinate reference systems, some of which may go directly, and more will use higher precision transformation grids, enlarging the existing practice of using North American Datum (NAD) grids. 
 
